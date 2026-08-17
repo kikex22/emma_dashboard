@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>EMMA Control</title>
+    <link rel="stylesheet" href="/vendor/@xterm/xterm/css/xterm.css">
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <strong>EMMA CONTROL</strong>
+            <span>ORIN / OPERATIONS</span>
+          </div>
+        </div>
+
+        <nav class="view-tabs" aria-label="Vistas" role="tablist">
+          <button class="tab-button active" data-view-target="dashboard" role="tab" aria-selected="true">
+            <i data-lucide="layout-dashboard"></i><span>Dashboard</span>
+          </button>
+          <button class="tab-button" data-view-target="terminal" role="tab" aria-selected="false">
+            <i data-lucide="square-terminal"></i><span>Terminal Orin</span>
+          </button>
+          <button class="tab-button" data-view-target="events" role="tab" aria-selected="false">
+            <i data-lucide="list-filter"></i><span>Eventos</span>
+          </button>
+        </nav>
+
+        <div class="top-status">
+          <span class="connection-pill" id="orin-pill" data-state="offline">
+            <span class="status-dot"></span>ORIN
+          </span>
+          <span class="connection-pill" id="ros-pill" data-state="offline">
+            <span class="status-dot"></span>ROS 2
+          </span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="view active" id="view-dashboard" aria-label="Dashboard">
+          <div class="system-rail">
+            <div class="rail-cell">
+              <span>ORIN</span>
+              <strong id="rail-orin">OFFLINE</strong>
+            </div>
+            <div class="rail-cell">
+              <span>ROS 2</span>
+              <strong id="rail-ros">OFFLINE</strong>
+            </div>
+            <div class="rail-cell">
+              <span>NAV2</span>
+              <strong id="rail-nav2">SIN DATOS</strong>
+            </div>
+            <div class="rail-cell">
+              <span>BASE OWNER</span>
+              <strong id="rail-owner">--</strong>
+            </div>
+            <div class="rail-cell rail-clock">
+              <span>LOCAL</span>
+              <strong id="local-clock">--:--:--</strong>
+            </div>
+          </div>
+
+          <div class="dashboard-grid">
+            <article class="ops-panel patrol-panel">
+              <header class="panel-header">
+                <div>
+                  <span class="panel-kicker">NAVIGATION</span>
+                  <h2>Carolina Patrol</h2>
+                </div>
+                <span class="module-state" id="patrol-online" data-state="offline">
+                  <span class="status-dot"></span>OFFLINE
+                </span>
+              </header>
+
+              <dl class="telemetry-list">
+                <div><dt>Estado</dt><dd id="patrol-status">sin datos</dd></div>
+                <div><dt>Ruta activa</dt><dd id="patrol-route">--</dd></div>
+                <div><dt>Waypoint</dt><dd id="patrol-waypoint">--</dd></div>
+                <div><dt>Velocidad</dt><dd id="patrol-speed">--</dd></div>
+                <div><dt>Odometria</dt><dd id="patrol-odom">--</dd></div>
+                <div><dt>Control base</dt><dd id="patrol-owner">--</dd></div>
+              </dl>
+
+              <div class="command-row primary-controls">
+                <button class="command-button positive" data-subsystem="patrol" data-command="start">
+                  <i data-lucide="play"></i><span>Start</span>
+                </button>
+                <button class="command-button danger" data-subsystem="patrol" data-command="hold">
+                  <i data-lucide="octagon-pause"></i><span>Hold</span>
+                </button>
+                <button class="command-button" data-subsystem="patrol" data-command="resume">
+                  <i data-lucide="step-forward"></i><span>Resume</span>
+                </button>
+                <button class="icon-button" title="Recargar ruta" aria-label="Recargar ruta" data-subsystem="patrol" data-command="reload" data-confirm="Recargar la ruta activa de Carolina?">
+                  <i data-lucide="refresh-cw"></i>
+                </button>
+              </div>
+            </article>
+
+            <article class="ops-panel isa-panel">
+              <header class="panel-header">
+                <div>
+                  <span class="panel-kicker amber">ORCHESTRATOR</span>
+                  <h2>ISA</h2>
+                </div>
+                <span class="module-state" id="isa-online" data-state="offline">
+                  <span class="status-dot"></span>OFFLINE
+                </span>
+              </header>
+
+              <dl class="telemetry-list">
+                <div><dt>Estado</dt><dd id="isa-state">sin datos</dd></div>
+                <div><dt>Modo</dt><dd id="isa-mode">--</dd></div>
+                <div><dt>Objetivo</dt><dd id="isa-target">--</dd></div>
+                <div><dt>Distancia</dt><dd id="isa-distance">--</dd></div>
+                <div><dt>Offset</dt><dd id="isa-offset">--</dd></div>
+                <div><dt>BIN</dt><dd id="isa-bin">--</dd></div>
+                <div><dt>Objetivo listo</dt><dd id="isa-ready">--</dd></div>
+                <div><dt>Patrol</dt><dd id="isa-patrol">--</dd></div>
+              </dl>
+
+              <div class="command-row primary-controls">
+                <button class="command-button positive amber-button" data-subsystem="isa" data-command="auto" data-confirm="Iniciar el ciclo automatico de ISA?">
+                  <i data-lucide="wand-sparkles"></i><span>Auto ISA</span>
+                </button>
+                <button class="command-button" data-subsystem="isa" data-command="next">
+                  <i data-lucide="corner-down-right"></i><span>Permiso</span>
+                </button>
+                <button class="command-button danger" data-subsystem="isa" data-command="reset" data-confirm="Resetear el ciclo actual de ISA?">
+                  <i data-lucide="rotate-ccw"></i><span>Reset</span>
+                </button>
+              </div>
+            </article>
+
+            <aside class="ops-panel control-panel">
+              <header class="panel-header compact">
+                <div>
+                  <span class="panel-kicker green">MISSION SETUP</span>
+                  <h2>Patrol Setup</h2>
+                </div>
+              </header>
+
+              <label class="field-control">
+                <span>Ruta</span>
+                <select id="route-select">
+                  <option value="route_1">route_1</option>
+                  <option value="route_2">route_2</option>
+                  <option value="route_3">route_3</option>
+                </select>
+              </label>
+              <button class="wide-button" id="apply-route">
+                <i data-lucide="route"></i><span>Seleccionar ruta</span>
+              </button>
+
+              <label class="field-control">
+                <span>Perfil de velocidad</span>
+                <select id="speed-select">
+                  <option value="slow_linear">slow_linear</option>
+                  <option value="normal_linear">normal_linear</option>
+                  <option value="fast_linear">fast_linear</option>
+                  <option value="slow_omni">slow_omni</option>
+                  <option value="normal_omni" selected>normal_omni</option>
+                  <option value="fast_omni">fast_omni</option>
+                </select>
+              </label>
+              <button class="wide-button" id="apply-speed">
+                <i data-lucide="gauge"></i><span>Aplicar perfil</span>
+              </button>
+
+              <div class="base-state">
+                <span>BASE CONTROL</span>
+                <strong id="base-state">sin datos</strong>
+                <small id="base-estop">E-STOP --</small>
+              </div>
+            </aside>
+
+            <section class="event-preview">
+              <header class="section-heading">
+                <div>
+                  <span class="panel-kicker">LIVE FEED</span>
+                  <h2>Eventos recientes</h2>
+                </div>
+                <button class="text-button" data-view-link="events">
+                  Ver todos<i data-lucide="arrow-right"></i>
+                </button>
+              </header>
+              <div class="event-list compact-list" id="event-preview-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view terminal-view" id="view-terminal" aria-label="Terminal Orin">
+          <div class="terminal-toolbar">
+            <div class="terminal-identity">
+              <i data-lucide="server"></i>
+              <div><strong>jetson@orin</strong><span id="terminal-host">192.168.68.72</span></div>
+            </div>
+            <span class="module-state" id="terminal-status" data-state="offline">
+              <span class="status-dot"></span>DESCONECTADA
+            </span>
+            <div class="toolbar-actions">
+              <button class="icon-button" id="terminal-reconnect" title="Reconectar" aria-label="Reconectar">
+                <i data-lucide="refresh-cw"></i>
+              </button>
+              <button class="icon-button" id="terminal-clear" title="Limpiar terminal" aria-label="Limpiar terminal">
+                <i data-lucide="eraser"></i>
+              </button>
+              <button class="icon-button" id="terminal-fullscreen" title="Pantalla completa" aria-label="Pantalla completa">
+                <i data-lucide="maximize-2"></i>
+              </button>
+            </div>
+          </div>
+          <div class="terminal-stage" id="terminal-stage">
+            <div id="terminal-container"></div>
+          </div>
+        </section>
+
+        <section class="view events-view" id="view-events" aria-label="Eventos">
+          <header class="events-toolbar">
+            <div>
+              <span class="panel-kicker">SYSTEM STREAM</span>
+              <h1>Eventos</h1>
+            </div>
+            <div class="event-filters" role="group" aria-label="Filtrar eventos">
+              <button class="filter-button active" data-filter="all">Todos</button>
+              <button class="filter-button" data-filter="patrol">Patrol</button>
+              <button class="filter-button" data-filter="isa">ISA</button>
+              <button class="filter-button" data-filter="error">Alertas</button>
+            </div>
+            <button class="icon-button" id="clear-events" title="Limpiar vista" aria-label="Limpiar vista">
+              <i data-lucide="trash-2"></i>
+            </button>
+          </header>
+          <div class="event-list full-list" id="event-full-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <div class="modal-backdrop" id="confirm-modal" hidden>
+      <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <i data-lucide="shield-alert" class="confirm-icon"></i>
+        <h2 id="confirm-title">Confirmar comando</h2>
+        <p id="confirm-message"></p>
+        <div class="dialog-actions">
+          <button class="command-button" id="confirm-cancel">Cancelar</button>
+          <button class="command-button danger" id="confirm-accept">Confirmar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+
+    <script src="/vendor/lucide/dist/umd/lucide.js"></script>
+    <script src="/vendor/@xterm/xterm/lib/xterm.js"></script>
+    <script src="/vendor/@xterm/addon-fit/lib/addon-fit.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
