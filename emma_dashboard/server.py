@@ -54,10 +54,23 @@ def unix_time() -> float:
 
 def local_websocket_origin(websocket: WebSocket) -> bool:
     origin = websocket.headers.get("origin")
+
     if not origin:
         return True
+
     try:
-        return urlparse(origin).hostname in {"127.0.0.1", "localhost", "::1"}
+        origin_host = urlparse(origin).hostname
+
+        host_header = websocket.headers.get("host", "")
+        request_host = urlparse(f"//{host_header}").hostname
+
+        return origin_host in {
+            "127.0.0.1",
+            "localhost",
+            "::1",
+            request_host,
+        }
+
     except ValueError:
         return False
 

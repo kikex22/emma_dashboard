@@ -1,4 +1,4 @@
-#!/home/adjor/Emma/src/emma_dashboard/.venv/bin/python3
+#!/home/jetson/emma/src/emma_dashboard/.venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys
