@@ -36,6 +36,9 @@ const mapView = {
   needsFit: true,
   drawPending: false,
   dragging: false,
+  poseMode: false,
+  poseDraft: null,
+  posePointerId: null,
   pointerX: 0,
   pointerY: 0,
 };
@@ -487,6 +490,8 @@ function renderState() {
     poseFresh ? `x ${fixed(robotPose.x, 2)}  y ${fixed(robotPose.y, 2)}` : "SIN TF"
   );
   text("map-route-status", route.points?.length ? `${route.points.length} PUNTOS` : "SIN PUNTOS");
+  text("map-pose-mode", mapView.poseMode ? "REUBICAR" : "NORMAL");
+  byId("map-initial-pose")?.classList.toggle("active", mapView.poseMode);
   byId("map-empty").hidden = mapAvailable;
   prepareMapRaster();
   requestMapDraw();
@@ -586,11 +591,35 @@ function worldToGrid(x, y) {
   };
 }
 
+function gridToWorld(point) {
+  const map = dashboardState.map || {};
+  const origin = map.origin || {};
+  const resolution = Number(map.resolution) || 1;
+  const yaw = Number(origin.yaw) || 0;
+  const localX = Number(point.x) * resolution;
+  const localY = (mapView.height - Number(point.y)) * resolution;
+  return {
+    x: (Number(origin.x) || 0) + Math.cos(yaw) * localX - Math.sin(yaw) * localY,
+    y: (Number(origin.y) || 0) + Math.sin(yaw) * localX + Math.cos(yaw) * localY,
+  };
+}
+
 function gridToCanvas(point) {
   return {
     x: mapView.offsetX + point.x * mapView.scale,
     y: mapView.offsetY + point.y * mapView.scale,
   };
+}
+
+function canvasToGrid(x, y) {
+  return {
+    x: (Number(x) - mapView.offsetX) / mapView.scale,
+    y: (Number(y) - mapView.offsetY) / mapView.scale,
+  };
+}
+
+function canvasToWorld(x, y) {
+  return gridToWorld(canvasToGrid(x, y));
 }
 
 function worldToCanvas(x, y) {
@@ -693,6 +722,36 @@ function drawRobot(context) {
   context.restore();
 }
 
+function drawInitialPosePreview(context) {
+  if (!mapView.poseDraft) return;
+  const draft = mapView.poseDraft;
+  const screen = worldToCanvas(draft.x, draft.y);
+  const angle = -(Number(draft.yaw) - Number(dashboardState.map?.origin?.yaw || 0));
+
+  context.save();
+  context.translate(screen.x, screen.y);
+  context.rotate(angle);
+  context.shadowColor = "rgb(244 185 66 / 75%)";
+  context.shadowBlur = 16;
+  context.beginPath();
+  context.moveTo(20, 0);
+  context.lineTo(-12, -11);
+  context.lineTo(-6, 0);
+  context.lineTo(-12, 11);
+  context.closePath();
+  context.fillStyle = "#f4b942";
+  context.fill();
+  context.shadowBlur = 0;
+  context.lineWidth = 2;
+  context.strokeStyle = "#17130a";
+  context.stroke();
+  context.beginPath();
+  context.arc(0, 0, 4, 0, Math.PI * 2);
+  context.fillStyle = "#090b0d";
+  context.fill();
+  context.restore();
+}
+
 function drawMap() {
   mapView.drawPending = false;
   const metrics = canvasMetrics();
@@ -735,6 +794,7 @@ function drawMap() {
   context.clip();
   drawRoute(context);
   drawRobot(context);
+  drawInitialPosePreview(context);
   context.restore();
 
   const zoom = mapView.fitScale ? Math.round((mapView.scale / mapView.fitScale) * 100) : 100;
@@ -878,6 +938,33 @@ async function sendCommand(subsystem, command, confirmation = "") {
     return true;
   } catch (error) {
     toast(error.message || "Error enviando comando", "error");
+    return false;
+  }
+}
+
+async function sendInitialPose(pose) {
+  if (!pose) return false;
+  const confirmed = await confirmAction(
+    `Reubicar robot en x=${pose.x.toFixed(2)} y=${pose.y.toFixed(2)} yaw=${Math.round(pose.yaw * 180 / Math.PI)} grados?`
+  );
+  if (!confirmed) return false;
+  try {
+    const response = await fetch("/api/navigation/initial-pose", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        x: pose.x,
+        y: pose.y,
+        yaw: pose.yaw,
+        frame_id: dashboardState.map?.frame_id || "map",
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || "No se pudo publicar /initialpose");
+    toast("Pose inicial publicada");
+    return true;
+  } catch (error) {
+    toast(error.message || "Error publicando pose inicial", "error");
     return false;
   }
 }
@@ -1206,6 +1293,16 @@ byId("map-zoom-out").addEventListener("click", () => zoomMap(0.8));
 byId("map-fit").addEventListener("click", fitMap);
 byId("map-center-robot").addEventListener("click", () => centerRobot());
 byId("map-follow").addEventListener("change", () => requestMapDraw());
+byId("map-initial-pose").addEventListener("click", () => {
+  mapView.poseMode = !mapView.poseMode;
+  mapView.poseDraft = null;
+  mapView.posePointerId = null;
+  mapView.dragging = false;
+  byId("map-follow").checked = false;
+  byId("map-canvas").classList.toggle("pose-mode", mapView.poseMode);
+  toast(mapView.poseMode ? "Toca el mapa y arrastra la orientacion" : "Reubicacion cancelada");
+  renderState();
+});
 
 byId("map-canvas").addEventListener("wheel", (event) => {
   event.preventDefault();
@@ -1214,6 +1311,17 @@ byId("map-canvas").addEventListener("wheel", (event) => {
 }, {passive: false});
 
 byId("map-canvas").addEventListener("pointerdown", (event) => {
+  if (mapView.poseMode) {
+    event.preventDefault();
+    const rect = byId("map-canvas").getBoundingClientRect();
+    const world = canvasToWorld(event.clientX - rect.left, event.clientY - rect.top);
+    mapView.poseDraft = {...world, yaw: dashboardState.robot_pose?.yaw || 0};
+    mapView.posePointerId = event.pointerId;
+    byId("map-canvas").setPointerCapture(event.pointerId);
+    requestMapDraw();
+    return;
+  }
+
   mapView.dragging = true;
   mapView.pointerX = event.clientX;
   mapView.pointerY = event.clientY;
@@ -1223,6 +1331,17 @@ byId("map-canvas").addEventListener("pointerdown", (event) => {
 });
 
 byId("map-canvas").addEventListener("pointermove", (event) => {
+  if (mapView.poseMode && mapView.poseDraft && event.pointerId === mapView.posePointerId) {
+    event.preventDefault();
+    const rect = byId("map-canvas").getBoundingClientRect();
+    const world = canvasToWorld(event.clientX - rect.left, event.clientY - rect.top);
+    const dx = world.x - mapView.poseDraft.x;
+    const dy = world.y - mapView.poseDraft.y;
+    if (Math.hypot(dx, dy) > 0.02) mapView.poseDraft.yaw = Math.atan2(dy, dx);
+    requestMapDraw();
+    return;
+  }
+
   if (!mapView.dragging) return;
   mapView.offsetX += event.clientX - mapView.pointerX;
   mapView.offsetY += event.clientY - mapView.pointerY;
@@ -1232,6 +1351,31 @@ byId("map-canvas").addEventListener("pointermove", (event) => {
 });
 
 function finishMapDrag(event) {
+  if (mapView.poseMode) {
+    const draft = mapView.poseDraft;
+    if (event.pointerId !== undefined && byId("map-canvas").hasPointerCapture(event.pointerId)) {
+      byId("map-canvas").releasePointerCapture(event.pointerId);
+    }
+    if (event.type === "pointercancel") {
+      mapView.poseDraft = null;
+      mapView.posePointerId = null;
+      requestMapDraw();
+      return;
+    }
+    if (draft && event.pointerId === mapView.posePointerId) {
+      sendInitialPose(draft).then((sent) => {
+        if (sent) {
+          mapView.poseMode = false;
+          byId("map-canvas").classList.remove("pose-mode");
+        }
+        mapView.poseDraft = null;
+        mapView.posePointerId = null;
+        renderState();
+      });
+    }
+    return;
+  }
+
   mapView.dragging = false;
   byId("map-canvas").classList.remove("dragging");
   if (event.pointerId !== undefined && byId("map-canvas").hasPointerCapture(event.pointerId)) {
@@ -1273,6 +1417,13 @@ byId("terminal-fullscreen").addEventListener("click", async () => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !byId("confirm-modal").hidden) closeConfirm(false);
   if (event.key === "Escape" && !byId("logs-modal").hidden) byId("logs-modal").hidden = true;
+  if (event.key === "Escape" && mapView.poseMode) {
+    mapView.poseMode = false;
+    mapView.poseDraft = null;
+    mapView.posePointerId = null;
+    byId("map-canvas").classList.remove("pose-mode");
+    renderState();
+  }
 });
 
 window.setInterval(() => {

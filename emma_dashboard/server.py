@@ -457,6 +457,7 @@ class RosBridge:
                 ReliabilityPolicy,
             )
             from rclpy.time import Time
+            from geometry_msgs.msg import PoseWithCovarianceStamped
             from nav_msgs.msg import OccupancyGrid
             from std_msgs.msg import String
             from tf2_ros import Buffer, TransformListener
@@ -477,6 +478,9 @@ class RosBridge:
             )
             self.publishers["record_arm"] = self.node.create_publisher(
                 String, "/arm_cam/recording_cmd", 10
+            )
+            self.publishers["initialpose"] = self.node.create_publisher(
+                PoseWithCovarianceStamped, "/initialpose", 10
             )
 
             self.node.create_subscription(
@@ -653,6 +657,34 @@ class RosBridge:
             from std_msgs.msg import String
 
             self.publishers[subsystem].publish(String(data=command))
+            return True
+        except Exception:
+            return False
+
+    def publish_initial_pose(
+        self,
+        x: float,
+        y: float,
+        yaw: float,
+        frame_id: str = "map",
+    ) -> bool:
+        if not self.ready or "initialpose" not in self.publishers or self.node is None:
+            return False
+        try:
+            from geometry_msgs.msg import PoseWithCovarianceStamped
+
+            msg = PoseWithCovarianceStamped()
+            msg.header.stamp = self.node.get_clock().now().to_msg()
+            msg.header.frame_id = frame_id or "map"
+            msg.pose.pose.position.x = float(x)
+            msg.pose.pose.position.y = float(y)
+            msg.pose.pose.position.z = 0.0
+            msg.pose.pose.orientation.z = math.sin(float(yaw) / 2.0)
+            msg.pose.pose.orientation.w = math.cos(float(yaw) / 2.0)
+            msg.pose.covariance[0] = 0.25
+            msg.pose.covariance[7] = 0.25
+            msg.pose.covariance[35] = 0.06853891945200942
+            self.publishers["initialpose"].publish(msg)
             return True
         except Exception:
             return False
@@ -1435,6 +1467,13 @@ class ProcessActionBody(BaseModel):
     map: str | None = None
 
 
+class InitialPoseBody(BaseModel):
+    x: float
+    y: float
+    yaw: float
+    frame_id: str = "map"
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
@@ -1546,6 +1585,27 @@ async def process_logs(name: str, lines: int = 160) -> dict[str, Any]:
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"ok": True, "name": requested_name, "logs": logs}
+
+
+@app.post("/api/navigation/initial-pose")
+async def navigation_initial_pose(body: InitialPoseBody) -> dict[str, Any]:
+    frame_id = body.frame_id.strip() or "map"
+    if frame_id != "map":
+        raise HTTPException(status_code=400, detail="Frame no permitido")
+    if not ros_bridge.publish_initial_pose(body.x, body.y, body.yaw, frame_id):
+        raise HTTPException(status_code=503, detail="Puente ROS 2 no disponible")
+    await hub.add_event(
+        "navigation",
+        f"Initial pose -> x={body.x:.2f} y={body.y:.2f} yaw={math.degrees(body.yaw):.0f}deg",
+        "command",
+    )
+    return {
+        "ok": True,
+        "x": body.x,
+        "y": body.y,
+        "yaw": body.yaw,
+        "frame_id": frame_id,
+    }
 
 
 @app.post("/api/emergency/controller-reset")

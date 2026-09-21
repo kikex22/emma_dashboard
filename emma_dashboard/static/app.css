@@ -1262,6 +1262,17 @@ button:disabled {
   cursor: grabbing;
 }
 
+#map-canvas.pose-mode {
+  cursor: crosshair;
+}
+
+.icon-button.pose-button.active {
+  border-color: rgb(244 185 66 / 80%);
+  background: rgb(244 185 66 / 14%);
+  color: var(--amber);
+  box-shadow: 0 0 16px rgb(244 185 66 / 18%);
+}
+
 .map-empty {
   position: absolute;
   inset: 0;
