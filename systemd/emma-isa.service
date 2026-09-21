@@ -1,0 +1,21 @@
+[Unit]
+Description=EMMA ISA orchestrator with local Orin OD
+Requires=emma-vision.target
+After=emma-vision.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jetson/emma
+ExecStart=/home/jetson/emma/src/emma_dashboard/scripts/run-isa.sh
+Restart=on-failure
+RestartPreventExitStatus=16
+RestartSec=3
+KillSignal=SIGINT
+KillMode=process
+TimeoutStopSec=45
+StandardInput=null
+
+[Install]
+WantedBy=default.target

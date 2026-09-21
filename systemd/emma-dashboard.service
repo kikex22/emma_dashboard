@@ -1,0 +1,16 @@
+[Unit]
+Description=EMMA Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jetson/emma/src/emma_dashboard
+ExecStart=/home/jetson/emma/src/emma_dashboard/run.sh
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target

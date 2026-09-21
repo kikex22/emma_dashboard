@@ -1,0 +1,12 @@
+[Unit]
+Description=EMMA WebRTC video gateway
+PartOf=emma-vision.target
+
+[Service]
+Type=simple
+ExecStart=/home/jetson/emma/src/emma_dashboard/scripts/run-video-gateway.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=EMMA Carolina Patrol
+BindsTo=emma-nav.service
+After=emma-nav.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jetson/emma
+ExecStart=/home/jetson/emma/src/emma_dashboard/scripts/run-patrol.sh
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=20
+StandardInput=null
+
+[Install]
+WantedBy=default.target

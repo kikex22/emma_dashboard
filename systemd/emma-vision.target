@@ -1,0 +1,7 @@
+[Unit]
+Description=EMMA dashboard vision stack
+Wants=emma-video.service emma-astra-depth.service emma-od-astra.service emma-od-arm.service
+After=emma-video.service emma-astra-depth.service
+
+[Install]
+WantedBy=default.target

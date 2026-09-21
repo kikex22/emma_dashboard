@@ -1,0 +1,12 @@
+[Unit]
+Description=EMMA Astra depth measurements
+PartOf=emma-vision.target
+
+[Service]
+Type=simple
+ExecStart=/home/jetson/emma/src/emma_dashboard/scripts/run-astra-depth.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

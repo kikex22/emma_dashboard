@@ -1,0 +1,20 @@
+[Unit]
+Description=EMMA Navigation Stack
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jetson/emma
+ExecStart=/home/jetson/emma/src/emma_dashboard/scripts/run-nav.sh
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=35
+StandardInput=null
+
+[Install]
+WantedBy=default.target

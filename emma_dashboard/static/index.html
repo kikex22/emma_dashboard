@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <title>EMMA Control</title>
     <link rel="stylesheet" href="/vendor/@xterm/xterm/css/xterm.css">
-    <link rel="stylesheet" href="/static/app.css">
+    <link rel="stylesheet" href="/static/app.css?v=20260915-isa3">
   </head>
   <body>
     <div class="app-shell">
@@ -23,8 +23,17 @@
           <button class="tab-button active" data-view-target="dashboard" role="tab" aria-selected="true">
             <i data-lucide="layout-dashboard"></i><span>Dashboard</span>
           </button>
+          <button class="tab-button" data-view-target="map" role="tab" aria-selected="false">
+            <i data-lucide="map"></i><span>Mapa</span>
+          </button>
+          <button class="tab-button" data-view-target="isa" role="tab" aria-selected="false">
+            <i data-lucide="bot"></i><span>ISA</span>
+          </button>
+          <button class="tab-button" data-view-target="vision" role="tab" aria-selected="false">
+            <i data-lucide="scan-eye"></i><span>Vision</span>
+          </button>
           <button class="tab-button" data-view-target="terminal" role="tab" aria-selected="false">
-            <i data-lucide="square-terminal"></i><span>Terminal Orin</span>
+            <i data-lucide="square-terminal"></i><span>Terminal</span>
           </button>
           <button class="tab-button" data-view-target="events" role="tab" aria-selected="false">
             <i data-lucide="list-filter"></i><span>Eventos</span>
@@ -32,6 +41,9 @@
         </nav>
 
         <div class="top-status">
+          <button class="emergency-button" id="controller-reset-c33" title="C33: emergencia y reset del controller" aria-label="C33 emergencia y reset del controller">
+            <i data-lucide="siren"></i><span>C33</span>
+          </button>
           <span class="connection-pill" id="orin-pill" data-state="offline">
             <span class="status-dot"></span>ORIN
           </span>
@@ -67,6 +79,71 @@
           </div>
 
           <div class="dashboard-grid">
+            <section class="ops-panel process-panel">
+              <header class="panel-header compact">
+                <div>
+                  <span class="panel-kicker">SYSTEMD / USER</span>
+                  <h2>Procesos del robot</h2>
+                </div>
+              </header>
+
+              <div class="process-list">
+                <div class="process-row" id="process-nav" data-state="offline">
+                  <div class="process-identity">
+                    <span class="status-dot"></span>
+                    <div><strong>Nav2</strong><span>emma-nav.service</span></div>
+                  </div>
+                  <div class="process-metric"><span>ESTADO</span><strong data-process-field="active_state">UNKNOWN</strong></div>
+                  <div class="process-metric"><span>PID</span><strong data-process-field="main_pid">--</strong></div>
+                  <div class="process-metric"><span>ACTIVO</span><strong data-process-field="uptime">--</strong></div>
+                  <label class="process-map-control" for="nav-map-select">
+                    <span>MAPA</span>
+                    <select id="nav-map-select" aria-label="Mapa de navegacion">
+                      <option value="">Cargando...</option>
+                    </select>
+                  </label>
+                  <div class="process-actions">
+                    <button class="icon-button positive" data-process="nav" data-process-action="start" title="Iniciar Nav2" aria-label="Iniciar Nav2"><i data-lucide="play"></i></button>
+                    <button class="icon-button danger" data-process="nav" data-process-action="stop" data-confirm="Detener Nav2 tambien detendra Patrol. Continuar?" title="Detener Nav2" aria-label="Detener Nav2"><i data-lucide="square"></i></button>
+                    <button class="icon-button" data-process="nav" data-process-action="restart" title="Reiniciar Nav2" aria-label="Reiniciar Nav2"><i data-lucide="refresh-cw"></i></button>
+                    <button class="icon-button" data-process-logs="nav" title="Ver logs de Nav2" aria-label="Ver logs de Nav2"><i data-lucide="scroll-text"></i></button>
+                  </div>
+                </div>
+
+                <div class="process-row" id="process-patrol" data-state="offline">
+                  <div class="process-identity">
+                    <span class="status-dot"></span>
+                    <div><strong>Patrol</strong><span>emma-patrol.service</span></div>
+                  </div>
+                  <div class="process-metric"><span>ESTADO</span><strong data-process-field="active_state">UNKNOWN</strong></div>
+                  <div class="process-metric"><span>PID</span><strong data-process-field="main_pid">--</strong></div>
+                  <div class="process-metric"><span>ACTIVO</span><strong data-process-field="uptime">--</strong></div>
+                  <div class="process-actions">
+                    <button class="icon-button positive" data-process="patrol" data-process-action="start" title="Iniciar Patrol y Nav2" aria-label="Iniciar Patrol y Nav2"><i data-lucide="play"></i></button>
+                    <button class="icon-button danger" data-process="patrol" data-process-action="stop" title="Detener Patrol" aria-label="Detener Patrol"><i data-lucide="square"></i></button>
+                    <button class="icon-button" data-process="patrol" data-process-action="restart" title="Reiniciar Patrol" aria-label="Reiniciar Patrol"><i data-lucide="refresh-cw"></i></button>
+                    <button class="icon-button" data-process-logs="patrol" title="Ver logs de Patrol" aria-label="Ver logs de Patrol"><i data-lucide="scroll-text"></i></button>
+                  </div>
+                </div>
+
+                <div class="process-row" id="process-isa" data-state="offline">
+                  <div class="process-identity">
+                    <span class="status-dot"></span>
+                    <div><strong>ISA + OD local</strong><span>emma-isa.service</span></div>
+                  </div>
+                  <div class="process-metric"><span>ESTADO</span><strong data-process-field="active_state">UNKNOWN</strong></div>
+                  <div class="process-metric"><span>PID</span><strong data-process-field="main_pid">--</strong></div>
+                  <div class="process-metric"><span>ACTIVO</span><strong data-process-field="uptime">--</strong></div>
+                  <div class="process-actions">
+                    <button class="icon-button positive" data-process="isa" data-process-action="start" title="Iniciar ISA con Nav2, Patrol y OD local" aria-label="Iniciar pipeline ISA"><i data-lucide="play"></i></button>
+                    <button class="icon-button danger" data-process="isa" data-process-action="stop" data-confirm="Detener el orquestador ISA?" title="Detener ISA" aria-label="Detener ISA"><i data-lucide="square"></i></button>
+                    <button class="icon-button" data-process="isa" data-process-action="restart" title="Reiniciar ISA" aria-label="Reiniciar ISA"><i data-lucide="refresh-cw"></i></button>
+                    <button class="icon-button" data-process-logs="isa" title="Ver logs de ISA" aria-label="Ver logs de ISA"><i data-lucide="scroll-text"></i></button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
             <article class="ops-panel patrol-panel">
               <header class="panel-header">
                 <div>
@@ -122,6 +199,10 @@
                 <div><dt>Offset</dt><dd id="isa-offset">--</dd></div>
                 <div><dt>BIN</dt><dd id="isa-bin">--</dd></div>
                 <div><dt>Objetivo listo</dt><dd id="isa-ready">--</dd></div>
+                <div><dt>BBOX / stop</dt><dd id="isa-bbox">--</dd></div>
+                <div><dt>Contact gate</dt><dd id="isa-contact">--</dd></div>
+                <div><dt>Gripper</dt><dd id="isa-gripper">--</dd></div>
+                <div><dt>Control base</dt><dd id="isa-base-owner">--</dd></div>
                 <div><dt>Patrol</dt><dd id="isa-patrol">--</dd></div>
               </dl>
 
@@ -135,6 +216,31 @@
                 <button class="command-button danger" data-subsystem="isa" data-command="reset" data-confirm="Resetear el ciclo actual de ISA?">
                   <i data-lucide="rotate-ccw"></i><span>Reset</span>
                 </button>
+              </div>
+
+              <div class="isa-command-console">
+                <label for="isa-command-select">
+                  <span>COMANDO INTERACTIVO</span>
+                  <select id="isa-command-select">
+                    <option value="next">s · permiso / siguiente paso</option>
+                    <option value="auto">a · ciclo automatico</option>
+                    <option value="reset">r · reset del ciclo</option>
+                    <option value="combo_test">c · combo Patrol/ISA sin brazo</option>
+                    <option value="abort_bin">k · abortar BIN y volver a Patrol</option>
+                    <option value="bin_auto">b · BIN directo automatico</option>
+                    <option value="bin_override">t · test BIN override</option>
+                    <option value="auto_joint">x · joint desde snapshot</option>
+                    <option value="joint_step">y · paso de joint BIN</option>
+                    <option value="drop">u · drop / resultado incierto</option>
+                    <option value="pow_test">o · test pow_pick</option>
+                    <option value="grasp_ok">g · agarre correcto</option>
+                    <option value="grasp_fail">f · agarre incorrecto</option>
+                    <option value="profiler">p · reporte del profiler</option>
+                    <option value="help">h · imprimir ayuda en logs</option>
+                  </select>
+                </label>
+                <button class="icon-button amber-command" id="send-isa-command" title="Enviar comando a ISA" aria-label="Enviar comando a ISA"><i data-lucide="send"></i></button>
+                <button class="icon-button" data-process-logs="isa" title="Abrir consola de ISA" aria-label="Abrir consola de ISA"><i data-lucide="square-terminal"></i></button>
               </div>
             </article>
 
@@ -195,6 +301,244 @@
           </div>
         </section>
 
+        <section class="view map-view" id="view-map" aria-label="Mapa de navegacion">
+          <div class="map-toolbar">
+            <div class="map-identity">
+              <i data-lucide="map"></i>
+              <div><strong>Mapa de navegación</strong><span id="map-frame">FRAME --</span></div>
+            </div>
+            <span class="module-state" id="map-status" data-state="offline">
+              <span class="status-dot"></span>SIN MAPA
+            </span>
+            <div class="map-controls">
+              <button class="icon-button" id="map-zoom-out" title="Alejar" aria-label="Alejar"><i data-lucide="zoom-out"></i></button>
+              <button class="icon-button" id="map-zoom-in" title="Acercar" aria-label="Acercar"><i data-lucide="zoom-in"></i></button>
+              <button class="icon-button" id="map-fit" title="Ajustar mapa" aria-label="Ajustar mapa"><i data-lucide="scan"></i></button>
+              <button class="icon-button" id="map-center-robot" title="Centrar robot" aria-label="Centrar robot"><i data-lucide="crosshair"></i></button>
+              <label class="follow-control">
+                <input type="checkbox" id="map-follow">
+                <span>Seguir robot</span>
+              </label>
+            </div>
+          </div>
+          <div class="map-stage" id="map-stage">
+            <canvas id="map-canvas" aria-label="Mapa 2D de EMMA"></canvas>
+            <div class="map-empty" id="map-empty">ESPERANDO /MAP</div>
+            <div class="map-hud">
+              <div><span>ROBOT</span><strong id="map-robot-pose">SIN TF</strong></div>
+              <div><span>RUTA</span><strong id="map-route-status">SIN PUNTOS</strong></div>
+              <div><span>ESCALA</span><strong id="map-scale">--</strong></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view isa-ops-view" id="view-isa" aria-label="Control operacional de ISA">
+          <div class="isa-ops-toolbar">
+            <div class="vision-identity">
+              <i data-lucide="bot"></i>
+              <div><strong>ISA Operations</strong><span>PERCEPCION / APPROACH / MANIPULACION</span></div>
+            </div>
+            <span class="module-state" id="isa-ops-online" data-state="offline">
+              <span class="status-dot"></span>OFFLINE
+            </span>
+            <div class="toolbar-actions">
+              <button class="icon-button positive" data-process="isa" data-process-action="start" title="Iniciar ISA" aria-label="Iniciar ISA"><i data-lucide="play"></i></button>
+              <button class="icon-button danger" data-process="isa" data-process-action="stop" data-confirm="Detener ISA?" title="Detener ISA" aria-label="Detener ISA"><i data-lucide="square"></i></button>
+              <button class="icon-button" data-process="isa" data-process-action="restart" title="Reiniciar ISA" aria-label="Reiniciar ISA"><i data-lucide="refresh-cw"></i></button>
+              <button class="icon-button" data-process-logs="isa" title="Ver logs de ISA" aria-label="Ver logs de ISA"><i data-lucide="scroll-text"></i></button>
+            </div>
+          </div>
+
+          <div class="isa-ops-workspace">
+            <div class="isa-camera-stack">
+              <section class="camera-panel isa-camera-panel" id="isa-camera-astra" data-state="offline">
+                <header class="camera-header">
+                  <div class="camera-identity">
+                    <span class="status-dot"></span>
+                    <div><strong>ASTRA RGB-D</strong><span>OBJETIVO Y DISTANCIA</span></div>
+                  </div>
+                  <strong class="camera-live-state" id="isa-astra-state">OFFLINE</strong>
+                </header>
+                <div class="camera-stage">
+                  <iframe id="isa-astra-frame" title="Video Astra para ISA" allow="autoplay; fullscreen" loading="lazy"></iframe>
+                  <div class="camera-empty" id="isa-astra-empty">
+                    <i data-lucide="video-off"></i><strong>STREAM OFFLINE</strong><span>Esperando Astra</span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="camera-panel isa-camera-panel" id="isa-camera-arm" data-state="offline">
+                <header class="camera-header">
+                  <div class="camera-identity">
+                    <span class="status-dot"></span>
+                    <div><strong>ARM CAM</strong><span>ALIGN / BBOX / CONTACT</span></div>
+                  </div>
+                  <strong class="camera-live-state" id="isa-arm-state">OFFLINE</strong>
+                </header>
+                <div class="camera-stage">
+                  <iframe id="isa-arm-frame" title="Video Arm Cam para ISA" allow="autoplay; fullscreen" loading="lazy"></iframe>
+                  <div class="camera-empty" id="isa-arm-empty">
+                    <i data-lucide="video-off"></i><strong>STREAM OFFLINE</strong><span>Esperando Arm Cam</span>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <aside class="isa-control-surface">
+              <section class="isa-status-block">
+                <header class="panel-header compact">
+                  <div><span class="panel-kicker amber">LIVE STATE</span><h2>Ciclo ISA</h2></div>
+                </header>
+                <dl class="telemetry-list isa-ops-telemetry">
+                  <div><dt>Estado</dt><dd id="isa-ops-state">sin datos</dd></div>
+                  <div><dt>Modo</dt><dd id="isa-ops-mode">--</dd></div>
+                  <div><dt>Objetivo</dt><dd id="isa-ops-target">--</dd></div>
+                  <div><dt>Distancia</dt><dd id="isa-ops-distance">--</dd></div>
+                  <div><dt>Offset</dt><dd id="isa-ops-offset">--</dd></div>
+                  <div><dt>BIN</dt><dd id="isa-ops-bin">--</dd></div>
+                  <div><dt>BBOX / stop</dt><dd id="isa-ops-bbox">--</dd></div>
+                  <div><dt>Contacto</dt><dd id="isa-ops-contact">--</dd></div>
+                  <div><dt>Gripper</dt><dd id="isa-ops-gripper">--</dd></div>
+                  <div><dt>Base owner</dt><dd id="isa-ops-owner">--</dd></div>
+                </dl>
+              </section>
+
+              <section class="isa-actions-block">
+                <div class="isa-primary-actions">
+                  <button class="command-button positive amber-button" data-subsystem="isa" data-command="auto" data-confirm="Iniciar el ciclo automatico de ISA?"><i data-lucide="wand-sparkles"></i><span>Auto ISA</span></button>
+                  <button class="command-button" data-subsystem="isa" data-command="next"><i data-lucide="corner-down-right"></i><span>Permiso</span></button>
+                  <button class="command-button danger" data-subsystem="isa" data-command="reset" data-confirm="Resetear el ciclo actual de ISA?"><i data-lucide="rotate-ccw"></i><span>Reset</span></button>
+                </div>
+                <div class="isa-action-grid">
+                  <button class="text-button danger" data-subsystem="isa" data-command="abort_bin"><i data-lucide="octagon-x"></i><span>Abortar BIN</span></button>
+                  <button class="text-button" data-subsystem="isa" data-command="combo_test"><i data-lucide="route"></i><span>Combo test</span></button>
+                  <button class="text-button" data-subsystem="isa" data-command="bin_auto"><i data-lucide="archive"></i><span>BIN auto</span></button>
+                  <button class="text-button" data-subsystem="isa" data-command="pow_test"><i data-lucide="hand"></i><span>Test pow</span></button>
+                  <button class="text-button positive" data-subsystem="isa" data-command="grasp_ok"><i data-lucide="check"></i><span>Agarre OK</span></button>
+                  <button class="text-button danger" data-subsystem="isa" data-command="grasp_fail"><i data-lucide="x"></i><span>Agarre fallo</span></button>
+                </div>
+              </section>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view vision-view" id="view-vision" aria-label="Vision artificial">
+          <div class="vision-toolbar">
+            <div class="vision-identity">
+              <i data-lucide="scan-eye"></i>
+              <div><strong>Object Detection</strong><span>ASTRA + ARM CAM / WEBRTC</span></div>
+            </div>
+            <span class="module-state" id="vision-status" data-state="offline">
+              <span class="status-dot"></span>DETENIDO
+            </span>
+            <div class="toolbar-actions">
+              <button class="icon-button record-button" id="record-all" title="Grabar ambas camaras" aria-label="Grabar ambas camaras"><i data-lucide="circle"></i></button>
+              <button class="icon-button" id="save-all-recordings" title="Guardar grabaciones activas" aria-label="Guardar grabaciones activas"><i data-lucide="save"></i></button>
+              <button class="icon-button positive" data-process="vision" data-process-action="start" title="Iniciar Vision" aria-label="Iniciar Vision"><i data-lucide="play"></i></button>
+              <button class="icon-button danger" data-process="vision" data-process-action="stop" data-confirm="Detener los detectores y el video?" title="Detener Vision" aria-label="Detener Vision"><i data-lucide="square"></i></button>
+              <button class="icon-button" data-process="vision" data-process-action="restart" title="Reiniciar Vision" aria-label="Reiniciar Vision"><i data-lucide="refresh-cw"></i></button>
+              <button class="icon-button" data-process-logs="vision" title="Ver logs de Vision" aria-label="Ver logs de Vision"><i data-lucide="scroll-text"></i></button>
+            </div>
+          </div>
+
+          <div class="vision-workspace">
+            <div class="vision-grid">
+              <section class="camera-panel" id="camera-astra" data-state="offline">
+                <header class="camera-header">
+                  <div class="camera-identity">
+                    <span class="status-dot"></span>
+                    <div><strong>ASTRA RGB-D</strong><span id="astra-camera-state">CAMARA --</span></div>
+                  </div>
+                  <div class="camera-actions">
+                    <button class="icon-button positive" data-process="od_astra" data-process-action="start" title="Iniciar OD Astra" aria-label="Iniciar OD Astra"><i data-lucide="play"></i></button>
+                    <button class="icon-button danger" data-process="od_astra" data-process-action="stop" title="Detener OD Astra" aria-label="Detener OD Astra"><i data-lucide="square"></i></button>
+                    <button class="icon-button" data-process="od_astra" data-process-action="restart" title="Reiniciar OD Astra" aria-label="Reiniciar OD Astra"><i data-lucide="refresh-cw"></i></button>
+                    <button class="icon-button" data-process-logs="od_astra" title="Ver logs de OD Astra" aria-label="Ver logs de OD Astra"><i data-lucide="scroll-text"></i></button>
+                  </div>
+                </header>
+                <div class="camera-stage camera-stage-astra">
+                  <iframe id="vision-astra-frame" title="Video anotado Astra" allow="autoplay; fullscreen" loading="lazy"></iframe>
+                  <div class="camera-empty" id="vision-astra-empty">
+                    <i data-lucide="video-off"></i><strong>STREAM OFFLINE</strong><span id="vision-astra-reason">Detector detenido</span>
+                  </div>
+                </div>
+                <div class="recording-strip" id="astra-recording" data-state="idle">
+                  <div class="recording-state"><span class="record-dot"></span><strong id="astra-recording-state">LISTO</strong><span id="astra-recording-time">0s</span></div>
+                  <select id="astra-recording-mode" aria-label="Formato de grabacion Astra" title="Formato de grabacion">
+                    <option value="both">RAW + DET</option>
+                    <option value="annotated">DETECCIONES</option>
+                    <option value="raw">RAW</option>
+                  </select>
+                  <div class="recording-actions">
+                    <button class="icon-button record-button" data-record-camera="astra" data-record-action="start" title="Iniciar grabacion Astra" aria-label="Iniciar grabacion Astra"><i data-lucide="circle"></i></button>
+                    <button class="icon-button" data-record-camera="astra" data-record-action="save" title="Guardar grabacion Astra" aria-label="Guardar grabacion Astra"><i data-lucide="save"></i></button>
+                    <button class="icon-button danger" data-record-camera="astra" data-record-action="cancel" data-confirm="Descartar la grabacion de Astra?" title="Descartar grabacion Astra" aria-label="Descartar grabacion Astra"><i data-lucide="trash-2"></i></button>
+                  </div>
+                  <span class="recording-detail" id="astra-recording-detail">--</span>
+                </div>
+                <dl class="camera-telemetry">
+                  <div><dt>STREAM</dt><dd id="astra-stream">OFFLINE</dd></div>
+                  <div><dt>FPS</dt><dd id="astra-fps">--</dd></div>
+                  <div><dt>INFERENCIA</dt><dd id="astra-inference">--</dd></div>
+                  <div><dt>DETECCIONES</dt><dd id="astra-detections">--</dd></div>
+                  <div><dt>OBJETIVO</dt><dd id="astra-target">--</dd></div>
+                  <div><dt>DISTANCIA</dt><dd id="astra-distance">--</dd></div>
+                </dl>
+              </section>
+
+              <section class="camera-panel" id="camera-arm" data-state="offline">
+                <header class="camera-header">
+                  <div class="camera-identity">
+                    <span class="status-dot"></span>
+                    <div><strong>ARM CAM</strong><span id="arm-camera-state">CAMARA --</span></div>
+                  </div>
+                  <div class="camera-actions">
+                    <button class="icon-button positive" data-process="od_arm" data-process-action="start" title="Iniciar Arm Cam" aria-label="Iniciar Arm Cam"><i data-lucide="play"></i></button>
+                    <button class="icon-button danger" data-process="od_arm" data-process-action="stop" title="Detener Arm Cam" aria-label="Detener Arm Cam"><i data-lucide="square"></i></button>
+                    <button class="icon-button" data-process="od_arm" data-process-action="restart" title="Reiniciar Arm Cam" aria-label="Reiniciar Arm Cam"><i data-lucide="refresh-cw"></i></button>
+                    <button class="icon-button" data-process-logs="od_arm" title="Ver logs de Arm Cam" aria-label="Ver logs de Arm Cam"><i data-lucide="scroll-text"></i></button>
+                  </div>
+                </header>
+                <div class="camera-stage camera-stage-arm">
+                  <iframe id="vision-arm-frame" title="Video anotado Arm Cam" allow="autoplay; fullscreen" loading="lazy"></iframe>
+                  <div class="camera-empty" id="vision-arm-empty">
+                    <i data-lucide="video-off"></i><strong>STREAM OFFLINE</strong><span id="vision-arm-reason">Camara no conectada</span>
+                  </div>
+                </div>
+                <div class="recording-strip" id="arm-recording" data-state="idle">
+                  <div class="recording-state"><span class="record-dot"></span><strong id="arm-recording-state">LISTO</strong><span id="arm-recording-time">0s</span></div>
+                  <select id="arm-recording-mode" aria-label="Formato de grabacion Arm Cam" title="Formato de grabacion">
+                    <option value="both">RAW + DET</option>
+                    <option value="annotated">DETECCIONES</option>
+                    <option value="raw">RAW</option>
+                  </select>
+                  <div class="recording-actions">
+                    <button class="icon-button record-button" data-record-camera="arm" data-record-action="start" title="Iniciar grabacion Arm Cam" aria-label="Iniciar grabacion Arm Cam"><i data-lucide="circle"></i></button>
+                    <button class="icon-button" data-record-camera="arm" data-record-action="save" title="Guardar grabacion Arm Cam" aria-label="Guardar grabacion Arm Cam"><i data-lucide="save"></i></button>
+                    <button class="icon-button danger" data-record-camera="arm" data-record-action="cancel" data-confirm="Descartar la grabacion de Arm Cam?" title="Descartar grabacion Arm Cam" aria-label="Descartar grabacion Arm Cam"><i data-lucide="trash-2"></i></button>
+                  </div>
+                  <span class="recording-detail" id="arm-recording-detail">--</span>
+                </div>
+                <dl class="camera-telemetry">
+                  <div><dt>STREAM</dt><dd id="arm-stream">OFFLINE</dd></div>
+                  <div><dt>FPS</dt><dd id="arm-fps">--</dd></div>
+                  <div><dt>LATENCIA</dt><dd id="arm-latency">--</dd></div>
+                  <div><dt>ALINEACION</dt><dd id="arm-alignment">--</dd></div>
+                  <div><dt>OBJETIVO</dt><dd id="arm-target">--</dd></div>
+                  <div><dt>AGARRE</dt><dd id="arm-grasp">--</dd></div>
+                </dl>
+              </section>
+            </div>
+
+            <div class="vision-service-strip">
+              <div id="vision-service-video" data-state="offline"><span class="status-dot"></span><span>WEBRTC</span><strong>OFFLINE</strong></div>
+              <div id="vision-service-depth" data-state="offline"><span class="status-dot"></span><span>DEPTH</span><strong>OFFLINE</strong></div>
+              <div id="vision-service-astra" data-state="offline"><span class="status-dot"></span><span>OD ASTRA</span><strong>OFFLINE</strong></div>
+              <div id="vision-service-arm" data-state="offline"><span class="status-dot"></span><span>OD ARM</span><strong>OFFLINE</strong></div>
+            </div>
+          </div>
+        </section>
+
         <section class="view terminal-view" id="view-terminal" aria-label="Terminal Orin">
           <div class="terminal-toolbar">
             <div class="terminal-identity">
@@ -231,6 +575,7 @@
               <button class="filter-button active" data-filter="all">Todos</button>
               <button class="filter-button" data-filter="patrol">Patrol</button>
               <button class="filter-button" data-filter="isa">ISA</button>
+              <button class="filter-button" data-filter="vision">Vision</button>
               <button class="filter-button" data-filter="error">Alertas</button>
             </div>
             <button class="icon-button" id="clear-events" title="Limpiar vista" aria-label="Limpiar vista">
@@ -254,11 +599,21 @@
       </div>
     </div>
 
+    <div class="modal-backdrop" id="logs-modal" hidden>
+      <div class="logs-dialog" role="dialog" aria-modal="true" aria-labelledby="logs-title">
+        <header>
+          <div><span class="panel-kicker">JOURNALD</span><h2 id="logs-title">Logs</h2></div>
+          <button class="icon-button" id="logs-close" title="Cerrar" aria-label="Cerrar"><i data-lucide="x"></i></button>
+        </header>
+        <pre id="logs-content"></pre>
+      </div>
+    </div>
+
     <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
 
     <script src="/vendor/lucide/dist/umd/lucide.js"></script>
     <script src="/vendor/@xterm/xterm/lib/xterm.js"></script>
     <script src="/vendor/@xterm/addon-fit/lib/addon-fit.js"></script>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=20260915-isa3"></script>
   </body>
 </html>

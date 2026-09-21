@@ -1,0 +1,15 @@
+[Unit]
+Description=EMMA arm camera object detection for dashboard
+Requires=emma-video.service
+After=emma-video.service
+PartOf=emma-vision.target
+
+[Service]
+Type=simple
+ExecStart=/home/jetson/emma/src/emma_dashboard/scripts/run-od-arm.sh
+Restart=always
+RestartPreventExitStatus=16
+RestartSec=3
+
+[Install]
+WantedBy=default.target
