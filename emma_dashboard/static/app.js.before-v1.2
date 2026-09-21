@@ -1070,7 +1070,7 @@ function switchView(viewName) {
   });
   window.history.replaceState(null, "", `#${viewName}`);
   if (viewName === "terminal") startTerminal();
-  if (viewName === "carolina") window.setTimeout(requestMapDraw, 40);
+  if (viewName === "map") window.setTimeout(requestMapDraw, 40);
   if (viewName === "vision" || viewName === "isa") window.setTimeout(renderVision, 40);
   else {
     syncVisionPlayer("astra", false);
@@ -1387,7 +1387,7 @@ byId("map-canvas").addEventListener("pointerup", finishMapDrag);
 byId("map-canvas").addEventListener("pointercancel", finishMapDrag);
 
 new ResizeObserver(() => {
-  if (byId("view-carolina").classList.contains("active")) requestMapDraw();
+  if (byId("view-map").classList.contains("active")) requestMapDraw();
 }).observe(byId("map-stage"));
 
 document.querySelectorAll(".filter-button").forEach((button) => {
@@ -1437,10 +1437,7 @@ renderEvents();
 connectStateSocket();
 loadAvailableRoutes();
 loadNavigationMaps();
-const requestedView = location.hash.slice(1);
-const initialView = requestedView === "map"
-  ? "carolina"
-  : ["dashboard", "carolina", "isa", "vision", "terminal", "events"].includes(requestedView)
-    ? requestedView
-    : "dashboard";
+const initialView = ["dashboard", "map", "isa", "vision", "terminal", "events"].includes(location.hash.slice(1))
+  ? location.hash.slice(1)
+  : "dashboard";
 switchView(initialView);

@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <title>EMMA Control</title>
     <link rel="stylesheet" href="/vendor/@xterm/xterm/css/xterm.css">
-    <link rel="stylesheet" href="/static/app.css?v=1.2">
+    <link rel="stylesheet" href="/static/app.css?v=20260915-isa3">
   </head>
   <body>
     <div class="app-shell">
@@ -15,7 +15,7 @@
           <span class="brand-mark" aria-hidden="true"></span>
           <div>
             <strong>EMMA CONTROL</strong>
-            <span>ORIN / OPERATIONS V1.2</span>
+            <span>ORIN / OPERATIONS V1.1</span>
           </div>
         </div>
 
@@ -23,8 +23,8 @@
           <button class="tab-button active" data-view-target="dashboard" role="tab" aria-selected="true">
             <i data-lucide="layout-dashboard"></i><span>Dashboard</span>
           </button>
-          <button class="tab-button" data-view-target="carolina" role="tab" aria-selected="false">
-            <i data-lucide="route"></i><span>Carolina</span>
+          <button class="tab-button" data-view-target="map" role="tab" aria-selected="false">
+            <i data-lucide="map"></i><span>Mapa</span>
           </button>
           <button class="tab-button" data-view-target="isa" role="tab" aria-selected="false">
             <i data-lucide="bot"></i><span>ISA</span>
@@ -144,6 +144,42 @@
               </div>
             </section>
 
+            <article class="ops-panel patrol-panel">
+              <header class="panel-header">
+                <div>
+                  <span class="panel-kicker">NAVIGATION</span>
+                  <h2>Carolina Patrol</h2>
+                </div>
+                <span class="module-state" id="patrol-online" data-state="offline">
+                  <span class="status-dot"></span>OFFLINE
+                </span>
+              </header>
+
+              <dl class="telemetry-list">
+                <div><dt>Estado</dt><dd id="patrol-status">sin datos</dd></div>
+                <div><dt>Ruta activa</dt><dd id="patrol-route">--</dd></div>
+                <div><dt>Waypoint</dt><dd id="patrol-waypoint">--</dd></div>
+                <div><dt>Velocidad</dt><dd id="patrol-speed">--</dd></div>
+                <div><dt>Odometria</dt><dd id="patrol-odom">--</dd></div>
+                <div><dt>Control base</dt><dd id="patrol-owner">--</dd></div>
+              </dl>
+
+              <div class="command-row primary-controls">
+                <button class="command-button positive" data-subsystem="patrol" data-command="start">
+                  <i data-lucide="play"></i><span>Start</span>
+                </button>
+                <button class="command-button danger" data-subsystem="patrol" data-command="hold">
+                  <i data-lucide="octagon-pause"></i><span>Hold</span>
+                </button>
+                <button class="command-button" data-subsystem="patrol" data-command="resume">
+                  <i data-lucide="step-forward"></i><span>Resume</span>
+                </button>
+                <button class="icon-button" title="Recargar ruta" aria-label="Recargar ruta" data-subsystem="patrol" data-command="reload" data-confirm="Recargar la ruta activa de Carolina?">
+                  <i data-lucide="refresh-cw"></i>
+                </button>
+              </div>
+            </article>
+
             <article class="ops-panel isa-panel">
               <header class="panel-header">
                 <div>
@@ -208,6 +244,48 @@
               </div>
             </article>
 
+            <aside class="ops-panel control-panel">
+              <header class="panel-header compact">
+                <div>
+                  <span class="panel-kicker green">MISSION SETUP</span>
+                  <h2>Patrol Setup</h2>
+                </div>
+              </header>
+
+              <label class="field-control">
+                <span>Ruta</span>
+                <select id="route-select">
+                  <option value="route_1">route_1</option>
+                  <option value="route_2">route_2</option>
+                  <option value="route_3">route_3</option>
+                </select>
+              </label>
+              <button class="wide-button" id="apply-route">
+                <i data-lucide="route"></i><span>Seleccionar ruta</span>
+              </button>
+
+              <label class="field-control">
+                <span>Perfil de velocidad</span>
+                <select id="speed-select">
+                  <option value="slow_linear">slow_linear</option>
+                  <option value="normal_linear">normal_linear</option>
+                  <option value="fast_linear">fast_linear</option>
+                  <option value="slow_omni">slow_omni</option>
+                  <option value="normal_omni" selected>normal_omni</option>
+                  <option value="fast_omni">fast_omni</option>
+                </select>
+              </label>
+              <button class="wide-button" id="apply-speed">
+                <i data-lucide="gauge"></i><span>Aplicar perfil</span>
+              </button>
+
+              <div class="base-state">
+                <span>BASE CONTROL</span>
+                <strong id="base-state">sin datos</strong>
+                <small id="base-estop">E-STOP --</small>
+              </div>
+            </aside>
+
             <section class="event-preview">
               <header class="section-heading">
                 <div>
@@ -223,11 +301,11 @@
           </div>
         </section>
 
-        <section class="view map-view carolina-view" id="view-carolina" aria-label="Carolina Patrol">
+        <section class="view map-view" id="view-map" aria-label="Mapa de navegacion">
           <div class="map-toolbar">
             <div class="map-identity">
-              <i data-lucide="route"></i>
-              <div><strong>Carolina</strong><span id="map-frame">NAVIGATION / FRAME --</span></div>
+              <i data-lucide="map"></i>
+              <div><strong>Mapa de navegación</strong><span id="map-frame">FRAME --</span></div>
             </div>
             <span class="module-state" id="map-status" data-state="offline">
               <span class="status-dot"></span>SIN MAPA
@@ -244,104 +322,17 @@
               </label>
             </div>
           </div>
-
-          <div class="carolina-workspace">
-            <div class="map-stage" id="map-stage">
-              <canvas id="map-canvas" aria-label="Mapa 2D de EMMA"></canvas>
-              <div class="map-empty" id="map-empty">ESPERANDO /MAP</div>
-              <div class="map-hud">
-                <div><span>ROBOT</span><strong id="map-robot-pose">SIN TF</strong></div>
-                <div><span>RUTA</span><strong id="map-route-status">SIN PUNTOS</strong></div>
-                <div><span>POSE</span><strong id="map-pose-mode">NORMAL</strong></div>
-                <div><span>ESCALA</span><strong id="map-scale">--</strong></div>
-              </div>
+          <div class="map-stage" id="map-stage">
+            <canvas id="map-canvas" aria-label="Mapa 2D de EMMA"></canvas>
+            <div class="map-empty" id="map-empty">ESPERANDO /MAP</div>
+            <div class="map-hud">
+              <div><span>ROBOT</span><strong id="map-robot-pose">SIN TF</strong></div>
+              <div><span>RUTA</span><strong id="map-route-status">SIN PUNTOS</strong></div>
+              <div><span>POSE</span><strong id="map-pose-mode">NORMAL</strong></div>
+              <div><span>ESCALA</span><strong id="map-scale">--</strong></div>
             </div>
-
-            <aside class="carolina-sidebar">
-              <section class="ops-panel patrol-panel carolina-patrol-panel">
-                <header class="panel-header">
-                  <div>
-                    <span class="panel-kicker">PATROL</span>
-                    <h2>Carolina Patrol</h2>
-                  </div>
-                  <span class="module-state" id="patrol-online" data-state="offline">
-                    <span class="status-dot"></span>OFFLINE
-                  </span>
-                </header>
-
-                <dl class="telemetry-list">
-                  <div><dt>Estado</dt><dd id="patrol-status">sin datos</dd></div>
-                  <div><dt>Ruta activa</dt><dd id="patrol-route">--</dd></div>
-                  <div><dt>Waypoint</dt><dd id="patrol-waypoint">--</dd></div>
-                  <div><dt>Velocidad</dt><dd id="patrol-speed">--</dd></div>
-                  <div><dt>Odometria</dt><dd id="patrol-odom">--</dd></div>
-                  <div><dt>Control base</dt><dd id="patrol-owner">--</dd></div>
-                </dl>
-
-                <div class="command-row primary-controls carolina-primary-controls">
-                  <button class="command-button positive" data-subsystem="patrol" data-command="start">
-                    <i data-lucide="play"></i><span>Start</span>
-                  </button>
-                  <button class="command-button danger" data-subsystem="patrol" data-command="hold">
-                    <i data-lucide="octagon-pause"></i><span>Hold</span>
-                  </button>
-                  <button class="command-button" data-subsystem="patrol" data-command="resume">
-                    <i data-lucide="step-forward"></i><span>Resume</span>
-                  </button>
-                  <button class="icon-button" title="Recargar ruta" aria-label="Recargar ruta"
-                          data-subsystem="patrol" data-command="reload"
-                          data-confirm="Recargar la ruta activa de Carolina?">
-                    <i data-lucide="refresh-cw"></i>
-                  </button>
-                </div>
-              </section>
-
-              <section class="ops-panel control-panel carolina-setup-panel">
-                <header class="panel-header compact">
-                  <div>
-                    <span class="panel-kicker green">MISSION SETUP</span>
-                    <h2>Ruta y velocidad</h2>
-                  </div>
-                </header>
-
-                <label class="field-control">
-                  <span>Ruta</span>
-                  <select id="route-select">
-                    <option value="route_1">route_1</option>
-                    <option value="route_2">route_2</option>
-                    <option value="route_3">route_3</option>
-                  </select>
-                </label>
-                <button class="wide-button" id="apply-route">
-                  <i data-lucide="route"></i><span>Seleccionar ruta</span>
-                </button>
-
-                <label class="field-control">
-                  <span>Perfil de velocidad</span>
-                  <select id="speed-select">
-                    <option value="slow_linear">slow_linear</option>
-                    <option value="normal_linear">normal_linear</option>
-                    <option value="fast_linear">fast_linear</option>
-                    <option value="slow_omni">slow_omni</option>
-                    <option value="normal_omni" selected>normal_omni</option>
-                    <option value="fast_omni">fast_omni</option>
-                  </select>
-                </label>
-                <button class="wide-button" id="apply-speed">
-                  <i data-lucide="gauge"></i><span>Aplicar perfil</span>
-                </button>
-
-                <div class="base-state">
-                  <span>BASE CONTROL</span>
-                  <strong id="base-state">sin datos</strong>
-                  <small id="base-estop">E-STOP --</small>
-                </div>
-              </section>
-            </aside>
           </div>
         </section>
-
-
 
         <section class="view isa-ops-view" id="view-isa" aria-label="Control operacional de ISA">
           <div class="isa-ops-toolbar">
@@ -625,6 +616,6 @@
     <script src="/vendor/lucide/dist/umd/lucide.js"></script>
     <script src="/vendor/@xterm/xterm/lib/xterm.js"></script>
     <script src="/vendor/@xterm/addon-fit/lib/addon-fit.js"></script>
-    <script src="/static/app.js?v=1.2"></script>
+    <script src="/static/app.js?v=20260915-isa3"></script>
   </body>
 </html>
