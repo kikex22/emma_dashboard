@@ -25,7 +25,7 @@ from urllib.request import Request, urlopen
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -51,6 +51,13 @@ CONTROLLER_RESET_SCRIPT = Path(
         "EMMA_CONTROLLER_RESET_SCRIPT",
         "/home/jetson/emma/scripts/controller_usb_reset_fast.sh",
     )
+)
+TEGRASTATS_BIN = Path(os.environ.get("EMMA_TEGRASTATS_BIN", "/usr/bin/tegrastats"))
+EVALUATION_ROOT = Path(
+    os.environ.get("EMMA_EVALUATION_DIR", "/home/jetson/.emma/evaluation")
+)
+EVALUATION_SCRIPT = Path(
+    os.environ.get("EMMA_EVALUATION_SCRIPT", "/home/jetson/emma/scripts/evaluation.sh")
 )
 
 ORIN_HOST = os.environ.get("EMMA_ORIN_HOST", "192.168.68.72")
@@ -96,6 +103,10 @@ MANAGED_SERVICES = {
     "isa": {
         "unit": "emma-isa.service",
         "label": "ISA + OD local",
+    },
+    "evaluation": {
+        "unit": "emma-evaluation.service",
+        "label": "Evaluation",
     },
 }
 SERVICE_ACTIONS = {"start", "stop", "restart"}
@@ -154,9 +165,142 @@ RECORDING_COMMANDS = {
     "cancel",
 }
 
+EVALUATION_TYPES = {
+    "slam_mapping": {
+        "number": 3,
+        "module": "carolina",
+        "label": "SLAM / creacion de mapa",
+        "suffix": "slam",
+    },
+    "nav_slam": {
+        "number": 4,
+        "module": "carolina",
+        "label": "Nav2 / navegacion sobre mapa",
+        "suffix": "nav",
+    },
+    "od_live": {
+        "number": 5,
+        "module": "vision",
+        "label": "OD / deteccion en vivo",
+        "suffix": "od",
+    },
+    "isa_mission": {
+        "number": 8,
+        "module": "isa",
+        "label": "ISA mision completa",
+        "suffix": "isa",
+    },
+    "video_stream": {
+        "number": 9,
+        "module": "vision",
+        "label": "Video / streaming",
+        "suffix": "video",
+    },
+}
+EVALUATION_CLASSES = {"bottle", "can", "cup", "bin"}
+EVALUATION_CAMERAS = {"astra", "arm_cam"}
+
 
 def unix_time() -> float:
     return round(time.time(), 3)
+
+
+def read_json_file(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def evaluation_active_state() -> dict[str, Any]:
+    active = read_json_file(EVALUATION_ROOT / "active_trial.json")
+    run_path = Path(str(active.get("path", "")))
+    metadata = read_json_file(run_path / "metadata.json") if run_path.is_dir() else {}
+    if not active or not metadata:
+        return {
+            "active": False,
+            "run_id": "",
+            "run_path": "",
+            "started_at": "",
+            "trial_type": "",
+            "trial_type_label": "",
+            "name": "",
+            "location": "",
+            "operator": "",
+        }
+    return {
+        "active": True,
+        "run_id": str(active.get("run_id", metadata.get("run_id", ""))),
+        "run_path": str(run_path),
+        "started_at": str(active.get("started_at", metadata.get("started_at", ""))),
+        "trial_type": str(metadata.get("trial_type", "")),
+        "trial_type_label": str(metadata.get("trial_type_label", "")),
+        "name": str(metadata.get("name", "")),
+        "location": str(metadata.get("location", "")),
+        "operator": str(metadata.get("operator", "")),
+        "notes": str(metadata.get("notes", "")),
+        "od_scene_mode": str(metadata.get("od_scene_mode", "")),
+        "od_expected_classes": list(metadata.get("od_expected_classes", []) or []),
+        "od_expected_cameras": list(metadata.get("od_expected_cameras", []) or []),
+    }
+
+
+def evaluation_reports(limit: int = 12) -> list[dict[str, Any]]:
+    runs_dir = EVALUATION_ROOT / "runs"
+    try:
+        run_paths = sorted(
+            (path for path in runs_dir.iterdir() if path.is_dir()),
+            key=lambda path: path.name,
+            reverse=True,
+        )
+    except OSError:
+        return []
+
+    reports: list[dict[str, Any]] = []
+    for run_path in run_paths:
+        metadata = read_json_file(run_path / "metadata.json")
+        report = read_json_file(run_path / "report.json")
+        if not metadata and not report:
+            continue
+        reports.append(
+            {
+                "run_id": run_path.name,
+                "name": str(metadata.get("name", run_path.name)),
+                "trial_type": str(metadata.get("trial_type", report.get("trial_type", ""))),
+                "trial_type_label": str(
+                    metadata.get("trial_type_label", report.get("trial_type_label", ""))
+                ),
+                "location": str(metadata.get("location", "")),
+                "started_at": str(metadata.get("started_at", "")),
+                "stopped_at": str(metadata.get("stopped_at", "")),
+                "duration_sec": metadata.get("duration_sec"),
+                "complete": bool(report),
+                "counts": dict(report.get("counts", {}) or {}),
+            }
+        )
+        if len(reports) >= max(1, min(limit, 50)):
+            break
+    return reports
+
+
+def automatic_evaluation_name(location: str, trial_type: str) -> str:
+    config = EVALUATION_TYPES[trial_type]
+    safe_location = re.sub(r"[^a-z0-9]+", "_", location.strip().lower()).strip("_") or "otro"
+    suffix = str(config["suffix"])
+    pattern = re.compile(rf"^{re.escape(safe_location)}_(\d+)_{re.escape(suffix)}$")
+    highest = 0
+    runs_dir = EVALUATION_ROOT / "runs"
+    try:
+        paths = runs_dir.iterdir()
+    except OSError:
+        paths = ()
+    for path in paths:
+        metadata = read_json_file(path / "metadata.json")
+        match = pattern.match(str(metadata.get("name", "")).lower())
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return f"{safe_location}_{highest + 1}_{suffix}"
 
 
 def quaternion_yaw(orientation: Any) -> float:
@@ -304,6 +448,11 @@ class DashboardHub:
                 "estop": False,
                 "updated_at": 0,
             },
+            "orin_health": {
+                "online": False,
+                "source": "tegrastats",
+                "updated_at": 0,
+            },
             "navigation": {
                 "ready": False,
                 "updated_at": 0,
@@ -348,6 +497,22 @@ class DashboardHub:
                 "annotated_recording": False,
                 "raw_recording": False,
                 "recording_status_updated_at": 0,
+                "updated_at": 0,
+            },
+            "evaluation": {
+                "active": False,
+                "collector_online": False,
+                "run_id": "",
+                "run_path": "",
+                "trial_type": "",
+                "trial_type_label": "",
+                "name": "",
+                "location": "",
+                "operator": "",
+                "started_at": "",
+                "interventions": 0,
+                "seen_topics": 0,
+                "clock_synchronized": time.time() > 1_600_000_000,
                 "updated_at": 0,
             },
             "processes": {
@@ -482,6 +647,9 @@ class RosBridge:
             self.publishers["initialpose"] = self.node.create_publisher(
                 PoseWithCovarianceStamped, "/initialpose", 10
             )
+            self.publishers["evaluation"] = self.node.create_publisher(
+                String, "/evaluation/command", 10
+            )
 
             self.node.create_subscription(
                 String, "/patrol/status", self._on_patrol_status, 10
@@ -562,6 +730,12 @@ class RosBridge:
                 String,
                 "/arm_cam_grasp_verify",
                 self._on_arm_grasp_verify,
+                10,
+            )
+            self.node.create_subscription(
+                String,
+                "/evaluation/status",
+                self._on_evaluation_status,
                 10,
             )
 
@@ -660,6 +834,15 @@ class RosBridge:
             return True
         except Exception:
             return False
+
+    def subscriber_count(self, subsystem: str) -> int:
+        publisher = self.publishers.get(subsystem)
+        if not self.ready or publisher is None:
+            return 0
+        try:
+            return int(publisher.get_subscription_count())
+        except Exception:
+            return 0
 
     def publish_initial_pose(
         self,
@@ -853,6 +1036,29 @@ class RosBridge:
                 },
             )
         )
+
+    def _on_evaluation_status(self, msg: Any) -> None:
+        payload = self._parse_json(msg.data)
+        if payload is None:
+            return
+        payload["collector_online"] = True
+        payload["updated_at"] = unix_time()
+        run_path = Path(str(payload.get("run_path", "")))
+        metadata = read_json_file(run_path / "metadata.json") if run_path.is_dir() else {}
+        for key in (
+            "name",
+            "trial_type",
+            "trial_type_label",
+            "operator",
+            "location",
+            "notes",
+            "od_scene_mode",
+            "od_expected_classes",
+            "od_expected_cameras",
+        ):
+            if key in metadata:
+                payload[key] = metadata[key]
+        self.hub.from_thread(self.hub.update_section("evaluation", payload))
 
     @staticmethod
     def _parse_json(raw: str) -> dict[str, Any] | None:
@@ -1325,6 +1531,37 @@ class ServiceManager:
 service_manager = ServiceManager(hub)
 
 
+class EvaluationMonitor:
+    def __init__(self, hub: DashboardHub) -> None:
+        self.hub = hub
+
+    async def refresh(self) -> dict[str, Any]:
+        values = evaluation_active_state()
+        process = await service_manager.status("evaluation")
+        values.update(
+            {
+                "collector_online": process["active_state"] == "active",
+                "clock_synchronized": time.time() > 1_600_000_000,
+                "updated_at": unix_time(),
+            }
+        )
+        live = self.hub.state.get("evaluation", {})
+        if values["active"] and values["run_id"] == live.get("run_id"):
+            for key in ("interventions", "seen_topics", "tf_outages", "last_report"):
+                if key in live:
+                    values[key] = live[key]
+        await self.hub.update_section("evaluation", values)
+        return values
+
+    async def monitor(self) -> None:
+        while True:
+            await self.refresh()
+            await asyncio.sleep(2.0)
+
+
+evaluation_monitor = EvaluationMonitor(hub)
+
+
 def probe_mediamtx() -> dict[str, Any]:
     request = Request(
         f"{MEDIAMTX_API.rstrip('/')}/v3/paths/list",
@@ -1402,6 +1639,150 @@ class VisionMonitor:
 vision_monitor = VisionMonitor(hub)
 
 
+def parse_tegrastats_line(line: str) -> dict[str, Any] | None:
+    ram_match = re.search(r"\bRAM\s+(\d+)/(\d+)MB", line)
+    cpu_match = re.search(r"\bCPU\s+\[([^\]]+)\]", line)
+    gpu_match = re.search(r"\bGR3D_FREQ\s+(\d+)%", line)
+
+    if not ram_match:
+        return None
+
+    cpu_values: list[int] = []
+    if cpu_match:
+        for token in cpu_match.group(1).split(","):
+            match = re.search(r"(\d+)%@", token)
+            if match:
+                cpu_values.append(int(match.group(1)))
+
+    swap_match = re.search(r"\bSWAP\s+(\d+)/(\d+)MB", line)
+    temps = {
+        name: float(value)
+        for name, value in re.findall(r"\b([A-Za-z0-9_]+)@([0-9.]+)C", line)
+    }
+    power_match = re.search(r"\bVDD_IN\s+(\d+)mW(?:/(\d+)mW)?", line)
+
+    ram_used = int(ram_match.group(1))
+    ram_total = int(ram_match.group(2))
+    ram_percent = round((ram_used / ram_total) * 100.0, 1) if ram_total else None
+    temp_max = max(temps.values()) if temps else None
+
+    status = "ok"
+    if (
+        (ram_percent is not None and ram_percent >= 90)
+        or (temp_max is not None and temp_max >= 78)
+    ):
+        status = "critical"
+    elif (
+        (ram_percent is not None and ram_percent >= 80)
+        or (temp_max is not None and temp_max >= 70)
+    ):
+        status = "warn"
+
+    return {
+        "online": True,
+        "source": "tegrastats",
+        "raw": line.strip(),
+        "status": status,
+        "ram_used_mb": ram_used,
+        "ram_total_mb": ram_total,
+        "ram_percent": ram_percent,
+        "swap_used_mb": int(swap_match.group(1)) if swap_match else None,
+        "swap_total_mb": int(swap_match.group(2)) if swap_match else None,
+        "cpu_percent": round(sum(cpu_values) / len(cpu_values), 1)
+        if cpu_values
+        else None,
+        "cpu_cores": cpu_values,
+        "gpu_percent": int(gpu_match.group(1)) if gpu_match else None,
+        "temp_c": round(temp_max, 1) if temp_max is not None else None,
+        "temps": temps,
+        "power_w": round(int(power_match.group(1)) / 1000.0, 2)
+        if power_match
+        else None,
+        "power_avg_w": round(
+            int(power_match.group(2) or power_match.group(1)) / 1000.0,
+            2,
+        )
+        if power_match
+        else None,
+        "updated_at": unix_time(),
+    }
+
+
+class OrinHealthMonitor:
+    def __init__(self, hub: DashboardHub) -> None:
+        self.hub = hub
+        self._previous_online: bool | None = None
+
+    async def _set_offline(self, reason: str) -> None:
+        await self.hub.update_section(
+            "orin_health",
+            {
+                "online": False,
+                "source": "tegrastats",
+                "error": reason,
+                "updated_at": unix_time(),
+            },
+        )
+        if self._previous_online is not False:
+            await self.hub.add_event("orin", f"tegrastats offline: {reason}", "warn")
+        self._previous_online = False
+
+    async def monitor(self) -> None:
+        if not TEGRASTATS_BIN.exists():
+            await self._set_offline(f"{TEGRASTATS_BIN} no existe")
+            while True:
+                await asyncio.sleep(30.0)
+
+        while True:
+            process: asyncio.subprocess.Process | None = None
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    str(TEGRASTATS_BIN),
+                    "--interval",
+                    "1000",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                if self._previous_online is False:
+                    await self.hub.add_event("orin", "tegrastats online", "ok")
+
+                assert process.stdout is not None
+                while True:
+                    raw_line = await process.stdout.readline()
+                    if not raw_line:
+                        break
+                    payload = parse_tegrastats_line(
+                        raw_line.decode(errors="replace").strip()
+                    )
+                    if payload is None:
+                        continue
+                    await self.hub.update_section("orin_health", payload)
+                    self._previous_online = True
+
+                stderr = ""
+                if process.stderr is not None:
+                    stderr = (await process.stderr.read()).decode(errors="replace")
+                await self._set_offline(stderr.strip() or "proceso detenido")
+            except asyncio.CancelledError:
+                if process is not None and process.returncode is None:
+                    process.terminate()
+                    with suppress(ProcessLookupError, asyncio.TimeoutError):
+                        await asyncio.wait_for(process.wait(), timeout=2.0)
+                raise
+            except Exception as exc:
+                await self._set_offline(str(exc))
+            finally:
+                if process is not None and process.returncode is None:
+                    process.terminate()
+                    with suppress(ProcessLookupError, asyncio.TimeoutError):
+                        await asyncio.wait_for(process.wait(), timeout=2.0)
+
+            await asyncio.sleep(3.0)
+
+
+orin_health_monitor = OrinHealthMonitor(hub)
+
+
 def probe_orin() -> bool:
     try:
         with socket.create_connection((ORIN_HOST, 22), timeout=1.5):
@@ -1434,18 +1815,26 @@ async def lifespan(_: FastAPI):
     monitor_task = asyncio.create_task(monitor_connections())
     service_task = asyncio.create_task(service_manager.monitor())
     vision_task = asyncio.create_task(vision_monitor.monitor())
+    health_task = asyncio.create_task(orin_health_monitor.monitor())
+    evaluation_task = asyncio.create_task(evaluation_monitor.monitor())
     try:
         yield
     finally:
         monitor_task.cancel()
         service_task.cancel()
         vision_task.cancel()
+        health_task.cancel()
+        evaluation_task.cancel()
         with suppress(asyncio.CancelledError):
             await monitor_task
         with suppress(asyncio.CancelledError):
             await service_task
         with suppress(asyncio.CancelledError):
             await vision_task
+        with suppress(asyncio.CancelledError):
+            await health_task
+        with suppress(asyncio.CancelledError):
+            await evaluation_task
         ros_bridge.stop()
 
 
@@ -1472,6 +1861,65 @@ class InitialPoseBody(BaseModel):
     y: float
     yaw: float
     frame_id: str = "map"
+
+
+class EvaluationStartBody(BaseModel):
+    trial_type: str
+    name: str = ""
+    operator: str = "dashboard"
+    location: str = "casa"
+    notes: str = ""
+    scene_mode: str = "free"
+    expected_classes: list[str] = Field(default_factory=list)
+    cameras: list[str] = Field(default_factory=list)
+
+
+class EvaluationTextBody(BaseModel):
+    text: str
+
+
+async def ensure_evaluation_collector() -> dict[str, Any]:
+    if not EVALUATION_SCRIPT.is_file():
+        raise RuntimeError(f"No existe el recolector C26: {EVALUATION_SCRIPT}")
+    status = await service_manager.status("evaluation")
+    if status["load_state"] == "not-found":
+        raise RuntimeError("emma-evaluation.service no esta instalado")
+    if status["active_state"] != "active":
+        await service_manager.action("evaluation", "start")
+
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        if ros_bridge.subscriber_count("evaluation") > 0:
+            return await service_manager.status("evaluation")
+        await asyncio.sleep(0.2)
+    raise RuntimeError("El recolector Evaluation no aparecio en ROS 2")
+
+
+async def publish_evaluation_command(payload: dict[str, Any]) -> None:
+    if not ros_bridge.publish("evaluation", json.dumps(payload, ensure_ascii=True)):
+        raise RuntimeError("No se pudo publicar /evaluation/command")
+
+
+def evaluation_warnings(trial_type: str, cameras: list[str]) -> list[str]:
+    processes = hub.state.get("processes", {})
+    active = {
+        name
+        for name, status in processes.items()
+        if status.get("active_state") == "active"
+    }
+    required: list[tuple[str, str]] = []
+    if trial_type == "nav_slam":
+        required = [("nav", "Nav2"), ("patrol", "Patrol")]
+    elif trial_type == "od_live":
+        if "astra" in cameras:
+            required.append(("od_astra", "OD Astra"))
+        if "arm_cam" in cameras:
+            required.append(("od_arm", "OD Arm Cam"))
+    elif trial_type == "video_stream":
+        required = [("video", "Video WebRTC")]
+    elif trial_type == "isa_mission":
+        required = [("isa", "ISA")]
+    return [f"{label} no esta activo" for name, label in required if name not in active]
 
 
 @app.get("/")
@@ -1501,6 +1949,163 @@ async def navigation_maps() -> dict[str, Any]:
 @app.get("/api/vision")
 async def vision_status() -> dict[str, Any]:
     return {"ok": True, "vision": await vision_monitor.refresh(False)}
+
+
+@app.get("/api/evaluation")
+async def evaluation_status() -> dict[str, Any]:
+    state = await evaluation_monitor.refresh()
+    return {
+        "ok": True,
+        "evaluation": state,
+        "types": EVALUATION_TYPES,
+        "reports": evaluation_reports(),
+    }
+
+
+@app.get("/api/evaluation/reports/{run_id}")
+async def evaluation_report(run_id: str) -> dict[str, Any]:
+    requested = run_id.strip()
+    if not requested or Path(requested).name != requested:
+        raise HTTPException(status_code=400, detail="Ensayo no permitido")
+    run_path = EVALUATION_ROOT / "runs" / requested
+    metadata = read_json_file(run_path / "metadata.json")
+    report = read_json_file(run_path / "report.json")
+    if not metadata and not report:
+        raise HTTPException(status_code=404, detail="Ensayo no encontrado")
+    return {"ok": True, "metadata": metadata, "report": report}
+
+
+@app.post("/api/evaluation/start")
+async def evaluation_start(body: EvaluationStartBody) -> dict[str, Any]:
+    trial_type = body.trial_type.strip().lower()
+    if trial_type not in EVALUATION_TYPES:
+        raise HTTPException(status_code=400, detail="Tipo de ensayo no permitido")
+    if evaluation_active_state()["active"]:
+        raise HTTPException(status_code=409, detail="Ya existe un ensayo activo")
+    if time.time() <= 1_600_000_000:
+        raise HTTPException(status_code=409, detail="Reloj del Orin no sincronizado")
+
+    location = body.location.strip()[:48] or "casa"
+    operator = body.operator.strip()[:48] or "dashboard"
+    name = body.name.strip()[:64] or automatic_evaluation_name(location, trial_type)
+    scene_mode = body.scene_mode.strip().lower()
+    expected_classes = list(dict.fromkeys(
+        value.strip().lower() for value in body.expected_classes if value.strip()
+    ))
+    cameras = list(dict.fromkeys(
+        value.strip().lower() for value in body.cameras if value.strip()
+    ))
+
+    if trial_type == "od_live":
+        if scene_mode not in {"isolated", "mixed", "free"}:
+            raise HTTPException(status_code=400, detail="Escena OD no permitida")
+        invalid_classes = sorted(set(expected_classes) - EVALUATION_CLASSES)
+        invalid_cameras = sorted(set(cameras) - EVALUATION_CAMERAS)
+        if invalid_classes or invalid_cameras:
+            raise HTTPException(status_code=400, detail="Configuracion OD no permitida")
+        if not cameras:
+            raise HTTPException(status_code=400, detail="Selecciona al menos una camara")
+        if scene_mode in {"isolated", "mixed"} and not expected_classes:
+            raise HTTPException(status_code=400, detail="Selecciona las clases esperadas")
+        if scene_mode == "isolated" and len(expected_classes) != 1:
+            raise HTTPException(status_code=400, detail="Escena aislada requiere una clase")
+        if scene_mode == "free":
+            expected_classes = []
+    else:
+        scene_mode = ""
+        expected_classes = []
+        cameras = []
+
+    try:
+        await ensure_evaluation_collector()
+        await publish_evaluation_command(
+            {
+                "action": "start",
+                "metadata": {
+                    "name": name,
+                    "trial_type": trial_type,
+                    "trial_type_label": EVALUATION_TYPES[trial_type]["label"],
+                    "operator": operator,
+                    "location": location,
+                    "platform": "orin",
+                    "notes": body.notes.strip()[:500],
+                    "od_scene_mode": scene_mode,
+                    "od_expected_classes": expected_classes,
+                    "od_expected_cameras": cameras,
+                    "allow_unsynchronized_clock": False,
+                },
+            }
+        )
+        deadline = time.monotonic() + 6.0
+        while time.monotonic() < deadline:
+            state = evaluation_active_state()
+            if state["active"]:
+                state = await evaluation_monitor.refresh()
+                warnings = evaluation_warnings(trial_type, cameras)
+                await hub.add_event("evaluation", f"Ensayo iniciado: {name}", "command")
+                return {"ok": True, "evaluation": state, "warnings": warnings}
+            await asyncio.sleep(0.15)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    raise HTTPException(status_code=503, detail="El recolector no confirmo el inicio")
+
+
+@app.post("/api/evaluation/stop")
+async def evaluation_stop() -> dict[str, Any]:
+    active = evaluation_active_state()
+    if not active["active"]:
+        raise HTTPException(status_code=409, detail="No hay un ensayo activo")
+    try:
+        await ensure_evaluation_collector()
+        await publish_evaluation_command({"action": "stop"})
+        deadline = time.monotonic() + 20.0
+        while time.monotonic() < deadline:
+            if not evaluation_active_state()["active"]:
+                await service_manager.action("evaluation", "stop")
+                state = await evaluation_monitor.refresh()
+                reports = evaluation_reports()
+                await hub.add_event(
+                    "evaluation",
+                    f"Ensayo finalizado: {active['run_id']}",
+                    "ok",
+                )
+                return {"ok": True, "evaluation": state, "reports": reports}
+            await asyncio.sleep(0.25)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    raise HTTPException(status_code=503, detail="El reporte no termino dentro del tiempo esperado")
+
+
+@app.post("/api/evaluation/note")
+async def evaluation_note(body: EvaluationTextBody) -> dict[str, Any]:
+    note = body.text.strip()[:500]
+    if not note:
+        raise HTTPException(status_code=400, detail="Escribe una nota")
+    if not evaluation_active_state()["active"]:
+        raise HTTPException(status_code=409, detail="No hay un ensayo activo")
+    try:
+        await ensure_evaluation_collector()
+        await publish_evaluation_command({"action": "note", "text": note})
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    await hub.add_event("evaluation", f"Nota: {note}", "info")
+    return {"ok": True}
+
+
+@app.post("/api/evaluation/intervention")
+async def evaluation_intervention(body: EvaluationTextBody) -> dict[str, Any]:
+    reason = body.text.strip()[:500]
+    if not reason:
+        raise HTTPException(status_code=400, detail="Describe la intervencion")
+    if not evaluation_active_state()["active"]:
+        raise HTTPException(status_code=409, detail="No hay un ensayo activo")
+    try:
+        await ensure_evaluation_collector()
+        await publish_evaluation_command({"action": "intervention", "reason": reason})
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    await hub.add_event("evaluation", f"Intervencion: {reason}", "warn")
+    return {"ok": True}
 
 
 @app.post("/api/command")

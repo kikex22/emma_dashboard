@@ -1,5 +1,6 @@
 const dashboardState = {
   connections: {},
+  orin_health: {},
   patrol: {},
   isa: {},
   base: {},
@@ -10,10 +11,12 @@ const dashboardState = {
   vision: {},
   od_astra: {},
   od_arm: {},
+  evaluation: {},
   processes: {},
 };
 
 let events = [];
+let evaluationReports = [];
 let activeFilter = "all";
 let stateSocket = null;
 let terminal = null;
@@ -91,6 +94,12 @@ function formatBytes(bytes) {
   const units = ["B", "KB", "MB", "GB", "TB"];
   const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
   return `${(value / (1024 ** index)).toFixed(index >= 3 ? 1 : 0)} ${units[index]}`;
+}
+
+function formatMbAsGb(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--";
+  return `${(number / 1024).toFixed(1)} GB`;
 }
 
 function fileName(path) {
@@ -358,8 +367,195 @@ async function loadNavigationMaps() {
   }
 }
 
+function selectedEvaluationType() {
+  return document.querySelector('input[name="evaluation-type"]:checked')?.value || "";
+}
+
+function selectedEvaluationValues(name) {
+  return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map((input) => input.value);
+}
+
+function evaluationElapsed(startedAt) {
+  const started = Date.parse(startedAt || "");
+  if (!Number.isFinite(started)) return "--";
+  return formatDuration((Date.now() - started) / 1000);
+}
+
+function renderEvaluationReports() {
+  const container = byId("evaluation-report-list");
+  if (!container) return;
+  container.replaceChildren();
+  if (!evaluationReports.length) {
+    const empty = document.createElement("div");
+    empty.className = "evaluation-empty";
+    empty.textContent = "Sin ensayos guardados.";
+    container.append(empty);
+    return;
+  }
+
+  evaluationReports.forEach((report) => {
+    const row = document.createElement("div");
+    row.className = "evaluation-report-row";
+    const name = document.createElement("strong");
+    name.textContent = report.name || report.run_id;
+    name.title = report.run_id || "";
+    const type = document.createElement("span");
+    type.textContent = report.trial_type_label || report.trial_type || "SIN TIPO";
+    const counts = report.counts || {};
+    const values = [
+      ["OK", counts.CONFORME || 0, "ok"],
+      ["DESV", counts.LOGRADO_CON_DESVIACIONES || 0, "warn"],
+      ["FAIL", counts.NO_LOGRADO || 0, "fail"],
+      ["PEND", counts.PENDIENTE_EVIDENCIA || 0, "warn"],
+    ];
+    row.append(name, type);
+    values.forEach(([label, value, state]) => {
+      const count = document.createElement("span");
+      count.className = `evaluation-report-count ${report.complete ? state : "warn"}`;
+      count.textContent = report.complete ? `${label} ${value}` : label === "OK" ? "INCOMPLETO" : "--";
+      row.append(count);
+    });
+    container.append(row);
+  });
+}
+
+function renderEvaluation() {
+  const evaluation = dashboardState.evaluation || {};
+  const process = dashboardState.processes?.evaluation || {};
+  const active = Boolean(evaluation.active);
+  const collectorOnline = process.active_state === "active" || Boolean(evaluation.collector_online);
+  const selected = selectedEvaluationType();
+
+  setStateBadge(
+    "evaluation-status",
+    active,
+    collectorOnline ? "EN CURSO" : "RECUPERAR",
+    "SIN ENSAYO",
+    active && !collectorOnline
+  );
+  setStateBadge("evaluation-collector", collectorOnline, "ONLINE", "OFFLINE");
+  const live = byId("evaluation-live");
+  if (live) live.dataset.state = active ? "online" : "offline";
+  text("evaluation-live-type", evaluation.trial_type_label || evaluation.trial_type);
+  text("evaluation-live-name", evaluation.name || evaluation.run_id);
+  text("evaluation-live-duration", active ? evaluationElapsed(evaluation.started_at) : "--");
+  text("evaluation-live-topics", active ? evaluation.seen_topics ?? 0 : "--");
+  text("evaluation-live-interventions", active ? evaluation.interventions ?? 0 : "--");
+  text("evaluation-live-clock", evaluation.clock_synchronized ? "SINCRONIZADO" : "NO SINCRONIZADO");
+  text(
+    "evaluation-live-message",
+    active
+      ? collectorOnline
+        ? `Recolectando evidencia en ${evaluation.run_id || "el ensayo activo"}.`
+        : "El ensayo quedo abierto pero el recolector esta detenido. Finalizar lo levantara para recuperar y generar el reporte."
+      : selected
+        ? "El ensayo observara ROS 2; inicia el modulo operativo antes de comenzar."
+        : "Selecciona una prueba para comenzar."
+  );
+
+  const odOptions = byId("evaluation-od-options");
+  if (odOptions) odOptions.hidden = selected !== "od_live";
+  const scene = byId("evaluation-scene")?.value || "free";
+  if (byId("evaluation-classes")) byId("evaluation-classes").disabled = scene === "free";
+
+  document.querySelectorAll('input[name="evaluation-type"], #evaluation-location, #evaluation-operator, #evaluation-name, #evaluation-notes, #evaluation-scene, input[name="evaluation-camera"], input[name="evaluation-class"]').forEach((control) => {
+    control.disabled = active;
+  });
+  byId("evaluation-start").disabled = active || !selected || !evaluation.clock_synchronized;
+  byId("evaluation-stop").disabled = !active;
+  byId("evaluation-add-note").disabled = !active;
+  byId("evaluation-add-intervention").disabled = !active;
+}
+
+async function loadEvaluation() {
+  try {
+    const response = await fetch("/api/evaluation");
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || "No se pudo leer Evaluation");
+    dashboardState.evaluation = payload.evaluation || {};
+    evaluationReports = payload.reports || [];
+    renderEvaluation();
+    renderEvaluationReports();
+  } catch (error) {
+    toast(error.message || "Error leyendo Evaluation", "error");
+  }
+}
+
+async function startEvaluation() {
+  const trialType = selectedEvaluationType();
+  if (!trialType) return;
+  const payload = {
+    trial_type: trialType,
+    location: byId("evaluation-location").value,
+    operator: byId("evaluation-operator").value,
+    name: byId("evaluation-name").value,
+    notes: byId("evaluation-notes").value,
+    scene_mode: byId("evaluation-scene").value,
+    cameras: selectedEvaluationValues("evaluation-camera"),
+    expected_classes: selectedEvaluationValues("evaluation-class"),
+  };
+  try {
+    byId("evaluation-start").disabled = true;
+    const response = await fetch("/api/evaluation/start", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "No se pudo iniciar el ensayo");
+    dashboardState.evaluation = result.evaluation || dashboardState.evaluation;
+    renderEvaluation();
+    toast("Evaluation: ensayo iniciado");
+    (result.warnings || []).forEach((warning) => toast(warning, "error"));
+  } catch (error) {
+    toast(error.message || "Error iniciando Evaluation", "error");
+    renderEvaluation();
+  }
+}
+
+async function stopEvaluation(confirmation = "") {
+  if (confirmation && !(await confirmAction(confirmation))) return;
+  try {
+    byId("evaluation-stop").disabled = true;
+    const response = await fetch("/api/evaluation/stop", {method: "POST"});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || "No se pudo finalizar el ensayo");
+    dashboardState.evaluation = payload.evaluation || {};
+    evaluationReports = payload.reports || evaluationReports;
+    renderEvaluation();
+    renderEvaluationReports();
+    toast("Evaluation: reporte generado");
+  } catch (error) {
+    toast(error.message || "Error finalizando Evaluation", "error");
+    renderEvaluation();
+  }
+}
+
+async function addEvaluationEntry(action) {
+  const input = byId("evaluation-entry-text");
+  const value = input.value.trim();
+  if (!value) {
+    toast("Escribe una nota o motivo", "error");
+    return;
+  }
+  try {
+    const response = await fetch(`/api/evaluation/${action}`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({text: value}),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || "No se pudo registrar");
+    input.value = "";
+    toast(action === "note" ? "Nota registrada" : "Intervencion registrada");
+  } catch (error) {
+    toast(error.message || "Error registrando evidencia", "error");
+  }
+}
+
 function renderState() {
   const connections = dashboardState.connections || {};
+  const orinHealth = dashboardState.orin_health || {};
   const patrol = dashboardState.patrol || {};
   const isa = dashboardState.isa || {};
   const base = dashboardState.base || {};
@@ -385,6 +581,20 @@ function renderState() {
   const navProcessActive = processes.nav?.active_state === "active";
   text("rail-nav2", navigation.ready ? "READY" : navProcessActive ? "INICIANDO" : "OFFLINE");
   text("rail-owner", base.owner || patrol.base_control_owner);
+  const healthFresh = Boolean(orinHealth.online) && isFresh(orinHealth, 4);
+  const healthPanel = byId("orin-health");
+  if (healthPanel) healthPanel.dataset.state = healthFresh ? orinHealth.status || "ok" : "offline";
+  text("orin-health-state", healthFresh ? String(orinHealth.status || "ok").toUpperCase() : "SIN DATOS");
+  text("orin-health-cpu", healthFresh ? fixed(orinHealth.cpu_percent, 1, "%") : "--");
+  text("orin-health-gpu", healthFresh ? fixed(orinHealth.gpu_percent, 0, "%") : "--");
+  text(
+    "orin-health-ram",
+    healthFresh
+      ? `${formatMbAsGb(orinHealth.ram_used_mb)} / ${formatMbAsGb(orinHealth.ram_total_mb)}`
+      : "--"
+  );
+  text("orin-health-temp", healthFresh ? fixed(orinHealth.temp_c, 1, " C") : "--");
+  text("orin-health-power", healthFresh ? fixed(orinHealth.power_w, 2, " W") : "--");
 
   text("patrol-status", patrolOnline ? patrol.status : "sin datos");
   text("patrol-route", patrol.route);
@@ -480,6 +690,7 @@ function renderState() {
   renderProcess("patrol", processes.patrol);
   renderProcess("isa", processes.isa);
   renderVision();
+  renderEvaluation();
 
   const mapAvailable = Boolean(map.available && map.width && map.height);
   const poseFresh = Boolean(robotPose.available) && isFresh(robotPose, 2.5);
@@ -1071,6 +1282,7 @@ function switchView(viewName) {
   window.history.replaceState(null, "", `#${viewName}`);
   if (viewName === "terminal") startTerminal();
   if (viewName === "carolina") window.setTimeout(requestMapDraw, 40);
+  if (viewName === "evaluation") loadEvaluation();
   if (viewName === "vision" || viewName === "isa") window.setTimeout(renderVision, 40);
   else {
     syncVisionPlayer("astra", false);
@@ -1200,6 +1412,18 @@ byId("send-isa-command").addEventListener("click", () => {
 });
 
 byId("controller-reset-c33").addEventListener("click", controllerEmergencyReset);
+
+document.querySelectorAll('input[name="evaluation-type"]').forEach((input) => {
+  input.addEventListener("change", renderEvaluation);
+});
+byId("evaluation-scene").addEventListener("change", renderEvaluation);
+byId("evaluation-refresh").addEventListener("click", loadEvaluation);
+byId("evaluation-start").addEventListener("click", startEvaluation);
+byId("evaluation-stop").addEventListener("click", () => {
+  stopEvaluation(byId("evaluation-stop").dataset.confirm || "");
+});
+byId("evaluation-add-note").addEventListener("click", () => addEvaluationEntry("note"));
+byId("evaluation-add-intervention").addEventListener("click", () => addEvaluationEntry("intervention"));
 
 document.querySelectorAll("[data-process][data-process-action]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -1437,10 +1661,11 @@ renderEvents();
 connectStateSocket();
 loadAvailableRoutes();
 loadNavigationMaps();
+loadEvaluation();
 const requestedView = location.hash.slice(1);
 const initialView = requestedView === "map"
   ? "carolina"
-  : ["dashboard", "carolina", "isa", "vision", "terminal", "events"].includes(requestedView)
+  : ["dashboard", "carolina", "isa", "vision", "evaluation", "terminal", "events"].includes(requestedView)
     ? requestedView
     : "dashboard";
 switchView(initialView);

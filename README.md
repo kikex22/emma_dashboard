@@ -6,6 +6,10 @@ Patrol mediante systemd, un visor 2D alimentado por `/map`, TF y
 `/patrol/markers`, dos monitores WebRTC para OD Astra y Arm Cam, y control
 interactivo de ISA.
 
+La vista Evaluation integra el recolector de `C26` para los ensayos Carolina
+3/4, Vision 5/9 e ISA 8. El recolector se inicia bajo demanda y no enciende ni
+controla los modulos operativos que esta observando.
+
 ## Preparacion
 
 ```bash
@@ -41,6 +45,8 @@ systemctl --user start emma-vision.target
 systemctl --user stop emma-vision.target
 systemctl --user start emma-isa
 systemctl --user stop emma-isa
+systemctl --user start emma-evaluation
+systemctl --user stop emma-evaluation
 ```
 
 Iniciar Patrol levanta Nav2 si no esta activo. Detener Nav2 tambien detiene
@@ -58,6 +64,12 @@ los detectores locales del Orin y acepta desde el dashboard los mismos comandos
 interactivos de la terminal (`a`, `s`, `r`, `c`, `k`, `b`, `t`, `x`, `y`,
 `u`, `o`, `g`, `f`, `p`, `h`) mediante `/isa/cmd`. Detener ISA detiene el
 orquestador; Nav2, Patrol y Vision conservan sus controles independientes.
+
+`emma-evaluation` ejecuta `evaluation.sh --collector-only`. Normalmente no se
+controla a mano: la ventana Evaluation lo inicia al comenzar o recuperar un
+ensayo, publica las ordenes en `/evaluation/command` y lo detiene despues de
+generar el reporte. Los resultados permanecen en
+`~/.emma/evaluation/runs/`.
 
 ## Grabaciones
 
@@ -88,6 +100,7 @@ journalctl --user -u emma-video -f
 journalctl --user -u emma-od-astra -f
 journalctl --user -u emma-od-arm -f
 journalctl --user -u emma-isa -f
+journalctl --user -u emma-evaluation -f
 ```
 
 Variables opcionales: `EMMA_DASHBOARD_PORT`, `EMMA_NAV_USE_RVIZ` y

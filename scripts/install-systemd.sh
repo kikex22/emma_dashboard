@@ -25,6 +25,7 @@ install -m 644 "$PROJECT_DIR/systemd/emma-od-astra.service" "$UNIT_DIR/"
 install -m 644 "$PROJECT_DIR/systemd/emma-od-arm.service" "$UNIT_DIR/"
 install -m 644 "$PROJECT_DIR/systemd/emma-vision.target" "$UNIT_DIR/"
 install -m 644 "$PROJECT_DIR/systemd/emma-isa.service" "$UNIT_DIR/"
+install -m 644 "$PROJECT_DIR/systemd/emma-evaluation.service" "$UNIT_DIR/"
 
 systemctl --user daemon-reload
 
@@ -32,3 +33,4 @@ echo "Servicios instalados sin habilitar arranque automatico."
 echo "Dashboard: systemctl --user start emma-dashboard"
 echo "Vision: systemctl --user start emma-vision.target"
 echo "ISA local: systemctl --user start emma-isa.service"
+echo "Evaluation: se inicia bajo demanda desde el dashboard"

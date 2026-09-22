@@ -1,0 +1,15 @@
+[Unit]
+Description=EMMA Evaluation collector (C26)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/jetson/emma/scripts/evaluation.sh --collector-only
+Restart=on-failure
+RestartSec=2
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <title>EMMA Control</title>
     <link rel="stylesheet" href="/vendor/@xterm/xterm/css/xterm.css">
-    <link rel="stylesheet" href="/static/app.css?v=1.2">
+    <link rel="stylesheet" href="/static/app.css?v=1.3.1">
   </head>
   <body>
     <div class="app-shell">
@@ -15,7 +15,7 @@
           <span class="brand-mark" aria-hidden="true"></span>
           <div>
             <strong>EMMA CONTROL</strong>
-            <span>ORIN / OPERATIONS V1.2</span>
+            <span>ORIN / OPERATIONS V1.3</span>
           </div>
         </div>
 
@@ -31,6 +31,9 @@
           </button>
           <button class="tab-button" data-view-target="vision" role="tab" aria-selected="false">
             <i data-lucide="scan-eye"></i><span>Vision</span>
+          </button>
+          <button class="tab-button" data-view-target="evaluation" role="tab" aria-selected="false">
+            <i data-lucide="clipboard-check"></i><span>Evaluation</span>
           </button>
           <button class="tab-button" data-view-target="terminal" role="tab" aria-selected="false">
             <i data-lucide="square-terminal"></i><span>Terminal</span>
@@ -77,6 +80,36 @@
               <strong id="local-clock">--:--:--</strong>
             </div>
           </div>
+
+          <section class="orin-health-strip" id="orin-health" data-state="offline" aria-label="Salud del Orin">
+            <div class="orin-health-title">
+              <span class="status-dot"></span>
+              <div>
+                <span>ORIN HEALTH</span>
+                <strong id="orin-health-state">SIN DATOS</strong>
+              </div>
+            </div>
+            <div class="orin-health-metric">
+              <span>CPU</span>
+              <strong id="orin-health-cpu">--</strong>
+            </div>
+            <div class="orin-health-metric">
+              <span>GPU</span>
+              <strong id="orin-health-gpu">--</strong>
+            </div>
+            <div class="orin-health-metric wide">
+              <span>RAM</span>
+              <strong id="orin-health-ram">--</strong>
+            </div>
+            <div class="orin-health-metric">
+              <span>TEMP</span>
+              <strong id="orin-health-temp">--</strong>
+            </div>
+            <div class="orin-health-metric">
+              <span>PWR</span>
+              <strong id="orin-health-power">--</strong>
+            </div>
+          </section>
 
           <div class="dashboard-grid">
             <section class="ops-panel process-panel">
@@ -550,6 +583,90 @@
           </div>
         </section>
 
+        <section class="view evaluation-view" id="view-evaluation" aria-label="EMMA Evaluation">
+          <header class="evaluation-toolbar">
+            <div class="evaluation-identity">
+              <i data-lucide="clipboard-check"></i>
+              <div><strong>EMMA Evaluation</strong><span>C26 / GUIA DE OBSERVACION</span></div>
+            </div>
+            <span class="module-state" id="evaluation-status" data-state="offline">
+              <span class="status-dot"></span>SIN ENSAYO
+            </span>
+            <div class="toolbar-actions">
+              <button class="icon-button" id="evaluation-refresh" title="Actualizar evaluacion" aria-label="Actualizar evaluacion"><i data-lucide="refresh-cw"></i></button>
+              <button class="command-button danger" id="evaluation-stop" disabled data-confirm="Finalizar el ensayo y generar el reporte?">
+                <i data-lucide="square"></i><span>Finalizar</span>
+              </button>
+            </div>
+          </header>
+
+          <div class="evaluation-workspace">
+            <section class="ops-panel evaluation-setup">
+              <header class="panel-header compact">
+                <div><span class="panel-kicker">NUEVO ENSAYO</span><h2>Seleccion de prueba</h2></div>
+              </header>
+
+              <div class="evaluation-fields">
+                <label><span>LUGAR</span><input id="evaluation-location" value="casa" maxlength="48" autocomplete="off"></label>
+                <label><span>OPERADOR</span><input id="evaluation-operator" value="dashboard" maxlength="48" autocomplete="off"></label>
+                <label class="wide"><span>NOMBRE OPCIONAL</span><input id="evaluation-name" maxlength="64" placeholder="Automatico: casa_N_tipo" autocomplete="off"></label>
+              </div>
+
+              <fieldset class="evaluation-group">
+                <legend>CAROLINA</legend>
+                <label class="trial-option"><input type="radio" name="evaluation-type" value="slam_mapping"><span class="trial-number">3</span><span><strong>SLAM</strong><small>Creacion de mapa</small></span></label>
+                <label class="trial-option"><input type="radio" name="evaluation-type" value="nav_slam"><span class="trial-number">4</span><span><strong>Nav2</strong><small>Navegacion y Patrol</small></span></label>
+              </fieldset>
+
+              <fieldset class="evaluation-group">
+                <legend>VISION</legend>
+                <label class="trial-option"><input type="radio" name="evaluation-type" value="od_live"><span class="trial-number">5</span><span><strong>OD en vivo</strong><small>Deteccion y TensorRT</small></span></label>
+                <label class="trial-option"><input type="radio" name="evaluation-type" value="video_stream"><span class="trial-number">9</span><span><strong>Video</strong><small>Streaming y recuperacion</small></span></label>
+              </fieldset>
+
+              <fieldset class="evaluation-group">
+                <legend>ISA</legend>
+                <label class="trial-option"><input type="radio" name="evaluation-type" value="isa_mission"><span class="trial-number">8</span><span><strong>Mision completa</strong><small>Recoleccion, traslado y deposito</small></span></label>
+              </fieldset>
+
+              <div class="evaluation-od-options" id="evaluation-od-options" hidden>
+                <label><span>ESCENA OD</span><select id="evaluation-scene"><option value="free">Operacion libre</option><option value="isolated">Clase aislada</option><option value="mixed">Escena combinada</option></select></label>
+                <fieldset><legend>CAMARAS</legend><label><input type="checkbox" name="evaluation-camera" value="astra" checked> Astra</label><label><input type="checkbox" name="evaluation-camera" value="arm_cam" checked> Arm Cam</label></fieldset>
+                <fieldset id="evaluation-classes" disabled><legend>CLASES PRESENTES</legend><label><input type="checkbox" name="evaluation-class" value="bottle"> bottle</label><label><input type="checkbox" name="evaluation-class" value="can"> can</label><label><input type="checkbox" name="evaluation-class" value="cup"> cup</label><label><input type="checkbox" name="evaluation-class" value="bin"> bin</label></fieldset>
+              </div>
+
+              <label class="evaluation-notes"><span>NOTAS</span><textarea id="evaluation-notes" maxlength="500" rows="3" placeholder="Condiciones especiales del ensayo"></textarea></label>
+              <button class="wide-button evaluation-start" id="evaluation-start" disabled><i data-lucide="play"></i><span>Iniciar ensayo</span></button>
+            </section>
+
+            <section class="ops-panel evaluation-live" data-state="offline" id="evaluation-live">
+              <header class="panel-header compact">
+                <div><span class="panel-kicker amber">RECOLECTOR</span><h2>Ensayo activo</h2></div>
+                <span class="module-state" id="evaluation-collector" data-state="offline"><span class="status-dot"></span>OFFLINE</span>
+              </header>
+              <dl class="telemetry-list evaluation-telemetry">
+                <div><dt>Prueba</dt><dd id="evaluation-live-type">--</dd></div>
+                <div><dt>Nombre</dt><dd id="evaluation-live-name">--</dd></div>
+                <div><dt>Duracion</dt><dd id="evaluation-live-duration">--</dd></div>
+                <div><dt>Topicos vistos</dt><dd id="evaluation-live-topics">--</dd></div>
+                <div><dt>Intervenciones</dt><dd id="evaluation-live-interventions">--</dd></div>
+                <div><dt>Reloj</dt><dd id="evaluation-live-clock">--</dd></div>
+              </dl>
+              <div class="evaluation-message" id="evaluation-live-message">Selecciona una prueba para comenzar.</div>
+              <div class="evaluation-entry">
+                <input id="evaluation-entry-text" maxlength="500" placeholder="Nota o motivo de intervencion" autocomplete="off">
+                <button class="command-button" id="evaluation-add-note" disabled><i data-lucide="message-square-plus"></i><span>Nota</span></button>
+                <button class="command-button amber-button" id="evaluation-add-intervention" disabled><i data-lucide="triangle-alert"></i><span>Intervencion</span></button>
+              </div>
+            </section>
+
+            <section class="evaluation-history">
+              <header class="section-heading"><div><span class="panel-kicker">RESULTADOS</span><h2>Ensayos recientes</h2></div></header>
+              <div class="evaluation-report-list" id="evaluation-report-list"></div>
+            </section>
+          </div>
+        </section>
+
         <section class="view terminal-view" id="view-terminal" aria-label="Terminal Orin">
           <div class="terminal-toolbar">
             <div class="terminal-identity">
@@ -625,6 +742,6 @@
     <script src="/vendor/lucide/dist/umd/lucide.js"></script>
     <script src="/vendor/@xterm/xterm/lib/xterm.js"></script>
     <script src="/vendor/@xterm/addon-fit/lib/addon-fit.js"></script>
-    <script src="/static/app.js?v=1.2"></script>
+    <script src="/static/app.js?v=1.3.1"></script>
   </body>
 </html>
