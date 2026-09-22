@@ -1838,7 +1838,7 @@ async def lifespan(_: FastAPI):
         ros_bridge.stop()
 
 
-app = FastAPI(title="EMMA Dashboard", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="EMMA Dashboard", version="1.4.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount(
     "/vendor",
