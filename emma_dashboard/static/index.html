@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <title>EMMA Control</title>
     <link rel="stylesheet" href="/vendor/@xterm/xterm/css/xterm.css">
-    <link rel="stylesheet" href="/static/app.css?v=1.4">
+    <link rel="stylesheet" href="/static/app.css?v=1.7">
   </head>
   <body>
     <div class="app-shell">
@@ -15,7 +15,7 @@
           <span class="brand-mark" aria-hidden="true"></span>
           <div>
             <strong>EMMA CONTROL</strong>
-            <span>ORIN / OPERATIONS V1.4</span>
+            <span>ORIN / OPERATIONS V1.7</span>
           </div>
         </div>
 
@@ -671,7 +671,7 @@
           <div class="terminal-toolbar">
             <div class="terminal-identity">
               <i data-lucide="server"></i>
-              <div><strong>jetson@orin</strong><span id="terminal-host">192.168.68.72</span></div>
+              <div><strong>jetson@orin</strong><span id="terminal-host">orin</span></div>
             </div>
             <span class="module-state" id="terminal-status" data-state="offline">
               <span class="status-dot"></span>DESCONECTADA
@@ -683,6 +683,9 @@
               <button class="icon-button" id="terminal-clear" title="Limpiar terminal" aria-label="Limpiar terminal">
                 <i data-lucide="eraser"></i>
               </button>
+              <button class="icon-button" id="terminal-keyboard" title="Mostrar teclado" aria-label="Mostrar teclado">
+                <i data-lucide="keyboard"></i>
+              </button>
               <button class="icon-button" id="terminal-fullscreen" title="Pantalla completa" aria-label="Pantalla completa">
                 <i data-lucide="maximize-2"></i>
               </button>
@@ -690,6 +693,16 @@
           </div>
           <div class="terminal-stage" id="terminal-stage">
             <div id="terminal-container"></div>
+            <pre class="terminal-fallback" id="terminal-fallback" hidden></pre>
+            <form class="terminal-command-form" id="terminal-command-form" autocomplete="off">
+              <input id="terminal-command-input" type="text" inputmode="text" enterkeyhint="send" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Escribir comando" aria-label="Comando para la terminal">
+              <button class="icon-button" id="terminal-interrupt" type="button" title="Interrumpir (Ctrl+C)" aria-label="Interrumpir Ctrl+C">
+                <i data-lucide="circle-stop"></i>
+              </button>
+              <button class="icon-button terminal-send" type="submit" title="Enviar comando" aria-label="Enviar comando">
+                <i data-lucide="corner-down-left"></i>
+              </button>
+            </form>
           </div>
         </section>
 
@@ -742,6 +755,6 @@
     <script src="/vendor/lucide/dist/umd/lucide.js"></script>
     <script src="/vendor/@xterm/xterm/lib/xterm.js"></script>
     <script src="/vendor/@xterm/addon-fit/lib/addon-fit.js"></script>
-    <script src="/static/app.js?v=1.4"></script>
+    <script src="/static/app.js?v=1.7"></script>
   </body>
 </html>

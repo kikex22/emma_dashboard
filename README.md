@@ -1,4 +1,4 @@
-# EMMA Dashboard V1.4
+# EMMA Dashboard V1.7
 
 Panel de operacion que vive en el Jetson Orin y se conecta directamente a
 ROS 2. Incluye controles de Carolina Patrol, terminal local, gestion de Nav2 y
@@ -30,7 +30,8 @@ systemctl --user status emma-dashboard
 systemctl --user stop emma-dashboard
 ```
 
-Abrir `http://192.168.68.72:8765` desde un equipo en la misma red.
+Abrir `http://192.168.68.72:8765` en Wi-Fi normal o `http://10.42.0.1:8765`
+cuando el Orin este en modo AP.
 
 ## Procesos del robot
 

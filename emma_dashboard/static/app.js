@@ -13,6 +13,7 @@ const dashboardState = {
   od_arm: {},
   evaluation: {},
   processes: {},
+  dashboard_video: {},
 };
 
 let events = [];
@@ -23,10 +24,18 @@ let terminal = null;
 let fitAddon = null;
 let terminalSocket = null;
 let terminalStarted = false;
+let terminalReconnectTimer = null;
+let terminalFallbackActive = false;
+const terminalDecoder = new TextDecoder();
 let confirmResolver = null;
 let routeSelectionDirty = false;
 let speedSelectionDirty = false;
 let navigationMapSelectionDirty = false;
+const videoReceiverState = {
+  astra: {loaded: false, loadCount: 0, lastLoadAt: 0, errorCount: 0},
+  arm_cam: {loaded: false, loadCount: 0, lastLoadAt: 0, errorCount: 0},
+};
+
 const mapView = {
   raster: document.createElement("canvas"),
   revision: null,
@@ -169,6 +178,53 @@ function visionPlayerUrl(camera) {
   return `${location.protocol}//${location.hostname}:${port}/${camera}/?autoplay=true&muted=true&controls=false&playsInline=true`;
 }
 
+function receiverCameraKey(camera) {
+  return camera === "arm" ? "arm_cam" : camera;
+}
+
+function noteVisionFrameState(camera, eventName) {
+  const key = receiverCameraKey(camera);
+  const state = videoReceiverState[key];
+  if (!state) return;
+  if (eventName === "load") {
+    state.loaded = true;
+    state.loadCount += 1;
+    state.lastLoadAt = Date.now() / 1000;
+  } else if (eventName === "error") {
+    state.loaded = false;
+    state.errorCount += 1;
+  } else if (eventName === "clear") {
+    state.loaded = false;
+  }
+}
+
+async function publishVideoReceiverStatus() {
+  const cameras = {};
+  [["astra", "astra"], ["arm", "arm_cam"]].forEach(([frameName, key]) => {
+    const frameVisible = ["vision", "isa"].some((viewName) => {
+      const frame = byId(`${viewName}-${frameName}-frame`);
+      return frame && !frame.hidden && Boolean(frame.dataset.streamUrl);
+    });
+    const state = videoReceiverState[key] || {};
+    cameras[key] = {
+      visible: frameVisible,
+      iframe_loaded: Boolean(state.loaded && frameVisible),
+      load_count: Number(state.loadCount) || 0,
+      error_count: Number(state.errorCount) || 0,
+      last_load_at: Number(state.lastLoadAt) || 0,
+    };
+  });
+  try {
+    await fetch("/api/video/receiver-status", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({receiver: "dashboard", cameras}),
+    });
+  } catch (_error) {
+    // La evaluacion conserva la ultima muestra valida si el dashboard pierde la red.
+  }
+}
+
 function syncVisionPlayer(camera, ready) {
   ["vision", "isa"].forEach((viewName) => {
     const frame = byId(`${viewName}-${camera}-frame`);
@@ -180,7 +236,10 @@ function syncVisionPlayer(camera, ready) {
     if (frame.dataset.streamUrl !== desired) {
       frame.dataset.streamUrl = desired;
       if (desired) frame.src = desired;
-      else frame.removeAttribute("src");
+      else {
+        frame.removeAttribute("src");
+        noteVisionFrameState(camera, "clear");
+      }
     }
     frame.hidden = !shouldPlay;
     empty.hidden = shouldPlay;
@@ -684,7 +743,7 @@ function renderState() {
     speedSelectionDirty = false;
   }
   if (!speedSelectionDirty) syncSelect("speed-select", patrol.speed);
-  text("terminal-host", connections.orin_host || "192.168.68.72");
+  text("terminal-host", location.hostname || connections.orin_host || "orin");
 
   renderProcess("nav", processes.nav);
   renderProcess("patrol", processes.patrol);
@@ -1307,90 +1366,188 @@ function updateTerminalBadge(state, message = "") {
   if (message) toast(`Terminal: ${message}`, "error");
 }
 
+function fitTerminal() {
+  if (!fitAddon || !terminal) return false;
+  const stage = byId("terminal-stage");
+  const bounds = stage?.getBoundingClientRect();
+  if (!bounds || bounds.width < 40 || bounds.height < 40) return false;
+  try {
+    fitAddon.fit();
+    return true;
+  } catch (error) {
+    console.warn("No se pudo ajustar la terminal al viewport", error);
+    return false;
+  }
+}
+
+function isAppleTouchDevice() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function sendTerminalInput(data) {
+  if (terminalSocket?.readyState !== WebSocket.OPEN) {
+    updateTerminalBadge("offline");
+    return false;
+  }
+  terminalSocket.send(JSON.stringify({type: "input", data}));
+  return true;
+}
+
+function activateTerminalFallback(error) {
+  terminalFallbackActive = true;
+  const stage = byId("terminal-stage");
+  const fallback = byId("terminal-fallback");
+  stage.classList.add("terminal-native", "terminal-mobile-input");
+  fallback.hidden = false;
+  fallback.textContent = `Terminal compatible activa.\n${error?.message || "xterm no disponible en este navegador"}\n\n`;
+}
+
+function writeTerminalOutput(data) {
+  if (terminal && !terminalFallbackActive) {
+    terminal.write(data);
+    return;
+  }
+  const fallback = byId("terminal-fallback");
+  if (!fallback) return;
+  fallback.hidden = false;
+  fallback.textContent += terminalDecoder.decode(data, {stream: true});
+  if (fallback.textContent.length > 120000) {
+    fallback.textContent = fallback.textContent.slice(-90000);
+  }
+  fallback.scrollTop = fallback.scrollHeight;
+}
+
 function connectTerminal() {
-  if (!terminal) return;
-  if (terminalSocket) terminalSocket.close();
+  if (terminalReconnectTimer) {
+    window.clearTimeout(terminalReconnectTimer);
+    terminalReconnectTimer = null;
+  }
+  if (terminalSocket) {
+    terminalSocket.onclose = null;
+    terminalSocket.close();
+  }
   const protocol = location.protocol === "https:" ? "wss" : "ws";
-  terminalSocket = new WebSocket(`${protocol}://${location.host}/ws/terminal`);
-  terminalSocket.binaryType = "arraybuffer";
+  const socket = new WebSocket(`${protocol}://${location.host}/ws/terminal`);
+  terminalSocket = socket;
+  socket.binaryType = "arraybuffer";
   updateTerminalBadge("connecting");
 
-  terminalSocket.onopen = () => {
-    terminalSocket.send(JSON.stringify({type: "resize", cols: terminal.cols, rows: terminal.rows}));
+  socket.onopen = () => {
+    if (socket !== terminalSocket) return;
+    socket.send(JSON.stringify({
+      type: "resize",
+      cols: terminal?.cols || 100,
+      rows: terminal?.rows || 30,
+    }));
   };
 
-  terminalSocket.onmessage = (message) => {
+  socket.onmessage = (message) => {
+    if (socket !== terminalSocket) return;
     if (typeof message.data === "string") {
-      const payload = JSON.parse(message.data);
+      let payload;
+      try {
+        payload = JSON.parse(message.data);
+      } catch (_error) {
+        return;
+      }
       if (payload.type === "status") {
         updateTerminalBadge(payload.value, payload.message || "");
       }
       return;
     }
-    terminal.write(new Uint8Array(message.data));
+    writeTerminalOutput(new Uint8Array(message.data));
   };
 
-  terminalSocket.onclose = () => updateTerminalBadge("offline");
-  terminalSocket.onerror = () => updateTerminalBadge("error", "fallo de conexion local");
+  socket.onclose = () => {
+    if (socket !== terminalSocket) return;
+    updateTerminalBadge("offline");
+    if (byId("view-terminal").classList.contains("active")) {
+      terminalReconnectTimer = window.setTimeout(connectTerminal, 1800);
+    }
+  };
+  socket.onerror = () => {
+    if (socket === terminalSocket) updateTerminalBadge("error", "fallo de conexion local");
+  };
 }
 
 function startTerminal() {
   if (!terminalStarted) {
     terminalStarted = true;
-    terminal = new Terminal({
-      cursorBlink: true,
-      cursorStyle: "bar",
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-      fontSize: 14,
-      letterSpacing: 0,
-      lineHeight: 1.16,
-      scrollback: 10000,
-      allowTransparency: false,
-      theme: {
-        background: "#07090a",
-        foreground: "#dce3e7",
-        cursor: "#22d3ee",
-        cursorAccent: "#07090a",
-        selectionBackground: "#244d56",
-        black: "#111417",
-        red: "#ff5964",
-        green: "#3fe38b",
-        yellow: "#f4b942",
-        blue: "#5b8cff",
-        magenta: "#c084fc",
-        cyan: "#22d3ee",
-        white: "#dce3e7",
-        brightBlack: "#69747c",
-        brightWhite: "#ffffff",
-      },
-    });
-    fitAddon = new FitAddon.FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(byId("terminal-container"));
-    terminal.onData((data) => {
-      if (terminalSocket?.readyState === WebSocket.OPEN) {
-        terminalSocket.send(JSON.stringify({type: "input", data}));
+    if (isAppleTouchDevice()) {
+      byId("terminal-stage").classList.add("terminal-mobile-input");
+    }
+    // The connection cannot depend on xterm: older Safari versions can fail
+    // while creating its hidden textarea before a WebSocket is requested.
+    connectTerminal();
+    try {
+      if (typeof window.Terminal !== "function" || !window.FitAddon?.FitAddon) {
+        throw new Error("xterm no es compatible con esta version de Safari");
       }
-    });
-    terminal.onResize(({cols, rows}) => {
-      if (terminalSocket?.readyState === WebSocket.OPEN) {
-        terminalSocket.send(JSON.stringify({type: "resize", cols, rows}));
-      }
-    });
-    const resizeObserver = new ResizeObserver(() => {
-      if (byId("view-terminal").classList.contains("active")) {
-        window.requestAnimationFrame(() => fitAddon.fit());
-      }
-    });
-    resizeObserver.observe(byId("terminal-stage"));
-    window.setTimeout(() => {
-      fitAddon.fit();
-      connectTerminal();
-    }, 80);
+      terminal = new Terminal({
+        cursorBlink: true,
+        cursorStyle: "bar",
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+        fontSize: 14,
+        letterSpacing: 0,
+        lineHeight: 1.16,
+        scrollback: 10000,
+        allowTransparency: false,
+        theme: {
+          background: "#07090a",
+          foreground: "#dce3e7",
+          cursor: "#22d3ee",
+          cursorAccent: "#07090a",
+          selectionBackground: "#244d56",
+          black: "#111417",
+          red: "#ff5964",
+          green: "#3fe38b",
+          yellow: "#f4b942",
+          blue: "#5b8cff",
+          magenta: "#c084fc",
+          cyan: "#22d3ee",
+          white: "#dce3e7",
+          brightBlack: "#69747c",
+          brightWhite: "#ffffff",
+        },
+      });
+      fitAddon = new FitAddon.FitAddon();
+      terminal.loadAddon(fitAddon);
+      terminal.open(byId("terminal-container"));
+      byId("terminal-stage").addEventListener("pointerdown", () => terminal.focus());
+      terminal.onData(sendTerminalInput);
+      terminal.onResize(({cols, rows}) => {
+        if (terminalSocket?.readyState === WebSocket.OPEN) {
+          terminalSocket.send(JSON.stringify({type: "resize", cols, rows}));
+        }
+      });
+      const resizeObserver = new ResizeObserver(() => {
+        if (byId("view-terminal").classList.contains("active")) {
+          window.requestAnimationFrame(fitTerminal);
+        }
+      });
+      resizeObserver.observe(byId("terminal-stage"));
+      window.setTimeout(fitTerminal, 80);
+    } catch (error) {
+      console.error("Terminal xterm no disponible", error);
+      activateTerminalFallback(error);
+    }
     return;
   }
-  window.setTimeout(() => fitAddon.fit(), 40);
+  window.setTimeout(fitTerminal, 40);
 }
+
+document.querySelectorAll("iframe[id$=\"-astra-frame\"]").forEach((frame) => {
+  frame.addEventListener("load", () => noteVisionFrameState("astra", "load"));
+  frame.addEventListener("error", () => noteVisionFrameState("astra", "error"));
+});
+
+document.querySelectorAll("iframe[id$=\"-arm-frame\"]").forEach((frame) => {
+  frame.addEventListener("load", () => noteVisionFrameState("arm", "load"));
+  frame.addEventListener("error", () => noteVisionFrameState("arm", "error"));
+});
+
+window.setInterval(publishVideoReceiverStatus, 1000);
 
 document.querySelectorAll(".tab-button").forEach((button) => {
   button.addEventListener("click", () => switchView(button.dataset.viewTarget));
@@ -1630,12 +1787,43 @@ byId("clear-events").addEventListener("click", () => {
 });
 
 byId("terminal-reconnect").addEventListener("click", connectTerminal);
-byId("terminal-clear").addEventListener("click", () => terminal?.clear());
+byId("terminal-clear").addEventListener("click", () => {
+  terminal?.clear();
+  byId("terminal-fallback").textContent = "";
+});
+byId("terminal-keyboard").addEventListener("click", () => {
+  if (isAppleTouchDevice() || terminalFallbackActive) byId("terminal-command-input").focus();
+  else terminal?.focus();
+});
+byId("terminal-command-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const input = byId("terminal-command-input");
+  if (!input.value || !sendTerminalInput(`${input.value}\r`)) return;
+  input.value = "";
+  input.focus();
+});
+byId("terminal-interrupt").addEventListener("click", () => {
+  sendTerminalInput("\x03");
+  byId("terminal-command-input").focus();
+});
 byId("terminal-fullscreen").addEventListener("click", async () => {
   const stage = byId("terminal-stage");
-  if (document.fullscreenElement) await document.exitFullscreen();
-  else await stage.requestFullscreen();
-  window.setTimeout(() => fitAddon?.fit(), 80);
+  if (document.fullscreenElement && document.exitFullscreen) await document.exitFullscreen();
+  else if (stage.requestFullscreen) await stage.requestFullscreen();
+  else if (isAppleTouchDevice() || terminalFallbackActive) byId("terminal-command-input").focus();
+  else terminal?.focus();
+  window.setTimeout(fitTerminal, 80);
+});
+
+window.addEventListener("online", () => {
+  connectStateSocket();
+  if (terminalStarted && byId("view-terminal").classList.contains("active")) connectTerminal();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  connectStateSocket();
+  if (terminalStarted && byId("view-terminal").classList.contains("active")) connectTerminal();
 });
 
 document.addEventListener("keydown", (event) => {

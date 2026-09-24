@@ -8,7 +8,6 @@ import os
 import pty
 import re
 import signal
-import socket
 import struct
 import subprocess
 import termios
@@ -60,7 +59,7 @@ EVALUATION_SCRIPT = Path(
     os.environ.get("EMMA_EVALUATION_SCRIPT", "/home/jetson/emma/scripts/evaluation.sh")
 )
 
-ORIN_HOST = os.environ.get("EMMA_ORIN_HOST", "192.168.68.72")
+ORIN_HOST = os.environ.get("EMMA_ORIN_HOST", "orin")
 MEDIAMTX_API = os.environ.get("EMMA_MEDIAMTX_API", "http://127.0.0.1:9997")
 VISION_DEVICES = {
     "astra": Path(
@@ -650,6 +649,9 @@ class RosBridge:
             self.publishers["evaluation"] = self.node.create_publisher(
                 String, "/evaluation/command", 10
             )
+            self.publishers["dashboard_video_status"] = self.node.create_publisher(
+                String, "/dashboard/video_status_json", 10
+            )
 
             self.node.create_subscription(
                 String, "/patrol/status", self._on_patrol_status, 10
@@ -831,6 +833,19 @@ class RosBridge:
             from std_msgs.msg import String
 
             self.publishers[subsystem].publish(String(data=command))
+            return True
+        except Exception:
+            return False
+
+    def publish_json_topic(self, subsystem: str, payload: dict[str, Any]) -> bool:
+        if not self.ready or subsystem not in self.publishers:
+            return False
+        try:
+            from std_msgs.msg import String
+
+            self.publishers[subsystem].publish(
+                String(data=json.dumps(payload, ensure_ascii=True))
+            )
             return True
         except Exception:
             return False
@@ -1783,28 +1798,14 @@ class OrinHealthMonitor:
 orin_health_monitor = OrinHealthMonitor(hub)
 
 
-def probe_orin() -> bool:
-    try:
-        with socket.create_connection((ORIN_HOST, 22), timeout=1.5):
-            return True
-    except OSError:
-        return False
-
-
 async def monitor_connections() -> None:
-    previous: bool | None = None
+    # This backend runs on the Orin itself. Probing its old Wi-Fi address made
+    # the dashboard report the Orin offline whenever NetworkManager switched
+    # the same radio to AP mode (10.42.0.1).
     while True:
-        online = await asyncio.to_thread(probe_orin)
         await hub.update_section(
-            "connections", {"orin": online, "updated_at": unix_time()}
+            "connections", {"orin": True, "updated_at": unix_time()}
         )
-        if previous is not None and online != previous:
-            await hub.add_event(
-                "orin",
-                "Conexion SSH disponible" if online else "Orin no responde por SSH",
-                "ok" if online else "warn",
-            )
-        previous = online
         await asyncio.sleep(5.0)
 
 
@@ -1838,7 +1839,7 @@ async def lifespan(_: FastAPI):
         ros_bridge.stop()
 
 
-app = FastAPI(title="EMMA Dashboard", version="1.4.0", lifespan=lifespan)
+app = FastAPI(title="EMMA Dashboard", version="1.7.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount(
     "/vendor",
@@ -1876,6 +1877,11 @@ class EvaluationStartBody(BaseModel):
 
 class EvaluationTextBody(BaseModel):
     text: str
+
+
+class VideoReceiverStatusBody(BaseModel):
+    receiver: str = "dashboard"
+    cameras: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 async def ensure_evaluation_collector() -> dict[str, Any]:
@@ -1960,6 +1966,68 @@ async def evaluation_status() -> dict[str, Any]:
         "types": EVALUATION_TYPES,
         "reports": evaluation_reports(),
     }
+
+
+
+def _dashboard_receiver_camera_payload(camera: str, client_status: dict[str, Any]) -> dict[str, Any]:
+    camera_key = "od_arm" if camera == "arm_cam" else "od_astra"
+    od_state = hub.state.get(camera_key, {}) if isinstance(hub.state, dict) else {}
+    vision_state = hub.state.get("vision", {}) if isinstance(hub.state, dict) else {}
+    ready_key = "arm_stream_ready" if camera == "arm_cam" else "astra_stream_ready"
+    connected_key = "arm_camera_connected" if camera == "arm_cam" else "astra_camera_connected"
+    now = unix_time()
+    try:
+        updated_at = float(od_state.get("updated_at", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        updated_at = 0.0
+    stream_fresh = updated_at > 0.0 and now - updated_at < 4.0
+    iframe_loaded = bool(client_status.get("iframe_loaded", False))
+    visible = bool(client_status.get("visible", False))
+    active = bool(vision_state.get(ready_key, False)) and iframe_loaded and visible
+
+    return {
+        "camera": camera,
+        "active": active,
+        "visible": visible,
+        "iframe_loaded": iframe_loaded,
+        "stream_ready": bool(vision_state.get(ready_key, False)),
+        "camera_connected": bool(vision_state.get(connected_key, False)),
+        "last_frame_age_ms": round(max(0.0, now - updated_at) * 1000.0, 3) if updated_at else None,
+        "fps": od_state.get("annotated_fps"),
+        "jitter_ms": od_state.get("frame_jitter_ms"),
+        "latency_ms": od_state.get("processing_latency_max_ms", od_state.get("processing_latency_ms")),
+        "packet_loss_percent": od_state.get("frame_read_failure_percent", 0.0),
+        "source_fresh": stream_fresh,
+        "updated_at": now,
+    }
+
+
+@app.post("/api/video/receiver-status")
+async def video_receiver_status(body: VideoReceiverStatusBody) -> dict[str, Any]:
+    now = unix_time()
+    requested = body.cameras or {}
+    cameras: dict[str, dict[str, Any]] = {}
+    for raw_name, status in requested.items():
+        name = str(raw_name).strip().lower()
+        if name == "arm":
+            name = "arm_cam"
+        if name not in {"astra", "arm_cam"} or not isinstance(status, dict):
+            continue
+        cameras[name] = _dashboard_receiver_camera_payload(name, status)
+
+    payload = {
+        "schema_version": 1,
+        "receiver": body.receiver.strip()[:40] or "dashboard",
+        "source": "dashboard",
+        "timestamp": now,
+        "cameras": cameras,
+    }
+    published = ros_bridge.publish_json_topic("dashboard_video_status", payload)
+    await hub.update_section(
+        "dashboard_video",
+        {"online": True, "updated_at": now, "published": published, "cameras": cameras},
+    )
+    return {"ok": True, "published": published, "status": payload}
 
 
 @app.get("/api/evaluation/reports/{run_id}")

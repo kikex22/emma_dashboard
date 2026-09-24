@@ -1831,6 +1831,9 @@ button:disabled {
 }
 
 .terminal-stage {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 8px;
   min-width: 0;
   min-height: 0;
   padding: 12px;
@@ -1838,6 +1841,7 @@ button:disabled {
 }
 
 #terminal-container {
+  grid-row: 1;
   width: 100%;
   height: 100%;
   min-height: 180px;
@@ -1850,6 +1854,83 @@ button:disabled {
 
 #terminal-container .xterm {
   height: 100%;
+}
+
+#terminal-container .xterm-helper-textarea {
+  font-size: 16px;
+}
+
+.terminal-fallback {
+  grid-row: 1;
+  min-width: 0;
+  min-height: 180px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid #252b30;
+  border-radius: 4px;
+  background: #07090a;
+  color: #dce3e7;
+  font: 14px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.terminal-fallback[hidden],
+.terminal-command-form {
+  display: none;
+}
+
+.terminal-stage.terminal-native #terminal-container {
+  display: none;
+}
+
+.terminal-stage.terminal-mobile-input {
+  grid-template-rows: minmax(0, 1fr) 46px;
+}
+
+.terminal-stage.terminal-mobile-input .terminal-command-form {
+  display: flex;
+  grid-row: 2;
+  gap: 7px;
+  min-width: 0;
+}
+
+.terminal-command-form input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid #303940;
+  border-radius: 4px;
+  padding: 0 12px;
+  background: #0b0e10;
+  color: #e7edf0;
+  font: 16px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.terminal-command-form input:focus {
+  border-color: var(--cyan);
+  outline: 1px solid rgb(34 211 238 / 35%);
+}
+
+.terminal-command-form .icon-button {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+}
+
+.terminal-command-form .terminal-send {
+  border-color: rgb(34 211 238 / 55%);
+  color: var(--cyan);
+}
+
+@media (pointer: coarse) {
+  .terminal-stage,
+  #terminal-container {
+    touch-action: manipulation;
+  }
+
+  #terminal-keyboard {
+    display: inline-flex;
+  }
 }
 
 .events-view.active {
@@ -2343,7 +2424,7 @@ button:disabled {
 }
 
 
-/* ===== V1.4 / Carolina ===== */
+/* ===== V1.7 / Carolina ===== */
 .carolina-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 370px);
