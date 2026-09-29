@@ -1,5 +1,6 @@
 const dashboardState = {
   connections: {},
+  ros_diagnostics: {},
   orin_health: {},
   patrol: {},
   isa: {},
@@ -31,6 +32,8 @@ let confirmResolver = null;
 let routeSelectionDirty = false;
 let speedSelectionDirty = false;
 let navigationMapSelectionDirty = false;
+let serverClockTime = null;
+let serverClockReceivedAt = 0;
 const videoReceiverState = {
   astra: {loaded: false, loadCount: 0, lastLoadAt: 0, errorCount: 0},
   arm_cam: {loaded: false, loadCount: 0, lastLoadAt: 0, errorCount: 0},
@@ -74,9 +77,22 @@ function setStateBadge(id, online, onlineLabel, offlineLabel, warning = false) {
   badge.replaceChildren(dot, document.createTextNode(online ? onlineLabel : offlineLabel));
 }
 
+function syncServerClock(value) {
+  const serverTime = Number(value);
+  if (!Number.isFinite(serverTime) || serverTime <= 0) return;
+  serverClockTime = serverTime;
+  serverClockReceivedAt = performance.now() / 1000;
+}
+
+function currentServerTime() {
+  if (serverClockTime === null) return Date.now() / 1000;
+  return serverClockTime + performance.now() / 1000 - serverClockReceivedAt;
+}
+
 function isFresh(section, seconds = 4) {
   if (!section || !section.updated_at) return false;
-  return Date.now() / 1000 - Number(section.updated_at) < seconds;
+  const age = currentServerTime() - Number(section.updated_at);
+  return age >= -1 && age < seconds;
 }
 
 function boolLabel(value, yes = "SI", no = "NO") {
@@ -614,6 +630,7 @@ async function addEvaluationEntry(action) {
 
 function renderState() {
   const connections = dashboardState.connections || {};
+  const rosDiagnostics = dashboardState.ros_diagnostics || {};
   const orinHealth = dashboardState.orin_health || {};
   const patrol = dashboardState.patrol || {};
   const isa = dashboardState.isa || {};
@@ -625,7 +642,7 @@ function renderState() {
   const processes = dashboardState.processes || {};
 
   const orinOnline = Boolean(connections.orin);
-  const rosOnline = Boolean(connections.ros);
+  const rosOnline = Boolean(connections.ros) && rosDiagnostics.status !== "offline";
   const patrolOnline = Boolean(patrol.online) && isFresh(patrol);
   const isaOnline = Boolean(isa.online) && isFresh(isa);
 
@@ -654,6 +671,44 @@ function renderState() {
   );
   text("orin-health-temp", healthFresh ? fixed(orinHealth.temp_c, 1, " C") : "--");
   text("orin-health-power", healthFresh ? fixed(orinHealth.power_w, 2, " W") : "--");
+
+  const rosDiagnosticPanel = byId("ros-diagnostic-strip");
+  const rosDiagnosticStatus = String(rosDiagnostics.status || "starting");
+  if (rosDiagnosticPanel) rosDiagnosticPanel.dataset.state = rosDiagnosticStatus;
+  const rosLabels = {
+    ok: "OK",
+    waiting: "ESPERANDO",
+    partial: "PARCIAL",
+    blocked: "TF BLOQUEADO",
+    offline: "OFFLINE",
+    starting: "INICIANDO",
+  };
+  text("ros-diagnostic-state", rosLabels[rosDiagnosticStatus] || rosDiagnosticStatus.toUpperCase());
+  text("ros-diagnostic-message", rosDiagnostics.message);
+  text(
+    "ros-diagnostic-executor",
+    rosDiagnostics.executor_alive
+      ? `${fixed(rosDiagnostics.executor_age_sec, 1, " s")}`
+      : "SIN HEARTBEAT"
+  );
+  const mapBaseTf = rosDiagnostics.tf?.map_base || {};
+  text(
+    "ros-diagnostic-tf",
+    mapBaseTf.ok ? `OK ${fixed(mapBaseTf.age_sec, 2, " s")}` : mapBaseTf.error || "SIN TF"
+  );
+  const topicAge = (name, staticTopic = false) => {
+    const value = rosDiagnostics.topics?.[name];
+    if (!value) return "SIN DATOS";
+    if (staticTopic) return "RECIBIDO";
+    return fixed(value.age_sec, 1, " s");
+  };
+  text("ros-diagnostic-map", topicAge("map", true));
+  text("ros-diagnostic-patrol", topicAge("patrol"));
+  text("ros-diagnostic-isa", topicAge("isa"));
+  const networkLabel = (rosDiagnostics.network || [])
+    .map((item) => `${item.name} ${item.address}`)
+    .join(" / ");
+  text("ros-diagnostic-network", networkLabel || "SIN RED");
 
   text("patrol-status", patrolOnline ? patrol.status : "sin datos");
   text("patrol-route", patrol.route);
@@ -1144,6 +1199,7 @@ function connectStateSocket() {
 
   stateSocket.onmessage = (message) => {
     const payload = JSON.parse(message.data);
+    syncServerClock(payload.server_time);
     if (payload.type === "snapshot") {
       Object.assign(dashboardState, payload.state || {});
       events = payload.events || [];
@@ -1310,6 +1366,25 @@ async function controllerEmergencyReset() {
     }
   } catch (error) {
     toast(error.message || "Error ejecutando C33", "error");
+  }
+}
+
+async function shutdownDashboard() {
+  const confirmed = await confirmAction(
+    "Apagar solamente el dashboard? Nav2, Patrol, ISA y Vision seguiran en su estado actual. Usa C25 para encenderlo nuevamente."
+  );
+  if (!confirmed) return;
+
+  const button = byId("dashboard-power-off");
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/dashboard/shutdown", {method: "POST"});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || "No se pudo apagar el dashboard");
+    toast("Dashboard apagandose. Usa C25 para volver a encenderlo.");
+  } catch (error) {
+    button.disabled = false;
+    toast(error.message || "Error apagando el dashboard", "error");
   }
 }
 
@@ -1569,6 +1644,7 @@ byId("send-isa-command").addEventListener("click", () => {
 });
 
 byId("controller-reset-c33").addEventListener("click", controllerEmergencyReset);
+byId("dashboard-power-off").addEventListener("click", shutdownDashboard);
 
 document.querySelectorAll('input[name="evaluation-type"]').forEach((input) => {
   input.addEventListener("change", renderEvaluation);

@@ -1,0 +1,6 @@
+[Unit]
+Description=Save the last valid EMMA system time
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/emma-clock-guard save

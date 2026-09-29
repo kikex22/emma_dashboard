@@ -58,6 +58,12 @@ EVALUATION_ROOT = Path(
 EVALUATION_SCRIPT = Path(
     os.environ.get("EMMA_EVALUATION_SCRIPT", "/home/jetson/emma/scripts/evaluation.sh")
 )
+ROS_DIAGNOSTICS_LOG = Path(
+    os.environ.get(
+        "EMMA_ROS_DIAGNOSTICS_LOG",
+        "/home/jetson/.emma/dashboard/ros_diagnostics.jsonl",
+    )
+)
 
 ORIN_HOST = os.environ.get("EMMA_ORIN_HOST", "orin")
 MEDIAMTX_API = os.environ.get("EMMA_MEDIAMTX_API", "http://127.0.0.1:9997")
@@ -419,6 +425,16 @@ class DashboardHub:
                 "orin_host": ORIN_HOST,
                 "updated_at": unix_time(),
             },
+            "ros_diagnostics": {
+                "status": "starting",
+                "message": "Iniciando puente ROS 2",
+                "executor_alive": False,
+                "executor_age_sec": None,
+                "topics": {},
+                "tf": {},
+                "network": [],
+                "updated_at": unix_time(),
+            },
             "patrol": {
                 "online": False,
                 "status": "sin datos",
@@ -609,6 +625,185 @@ class RosBridge:
         self._route_file_signature: tuple[str, int] | None = None
         self._last_patrol_status = ""
         self._last_rosout: dict[str, float] = {}
+        self._diagnostic_lock = threading.Lock()
+        self._started_at = unix_time()
+        self._executor_heartbeat = 0.0
+        self._topic_seen: dict[str, float] = {}
+        self._tf_links: dict[str, dict[str, Any]] = {}
+        self._last_tf_probe = 0.0
+        self._publications: dict[str, dict[str, Any]] = {}
+
+    def _heartbeat(self) -> None:
+        with self._diagnostic_lock:
+            self._executor_heartbeat = unix_time()
+
+    def _touch_topic(self, name: str) -> None:
+        with self._diagnostic_lock:
+            self._topic_seen[name] = unix_time()
+
+    def _record_publication(
+        self,
+        subsystem: str,
+        command: str,
+        success: bool,
+        error: str = "",
+    ) -> None:
+        publisher = self.publishers.get(subsystem)
+        subscribers = 0
+        if publisher is not None:
+            with suppress(Exception):
+                subscribers = int(publisher.get_subscription_count())
+        record = {
+            "record_type": "publication",
+            "subsystem": subsystem,
+            "command": command[:240],
+            "success": success,
+            "subscribers": subscribers,
+            "error": error[:240],
+            "recorded_at": unix_time(),
+        }
+        with self._diagnostic_lock:
+            self._publications[subsystem] = dict(record)
+        append_ros_diagnostic(record)
+
+    def _probe_tf_links(self) -> None:
+        if self.tf_buffer is None or self._time_class is None or self.node is None:
+            return
+        now_monotonic = time.monotonic()
+        if now_monotonic - self._last_tf_probe < 1.0:
+            return
+        self._last_tf_probe = now_monotonic
+        now_ros = self.node.get_clock().now().nanoseconds / 1_000_000_000
+        probes = {
+            "map_odom": ("map", "odom"),
+            "odom_base": ("odom", "base_footprint"),
+            "map_base": ("map", "base_footprint"),
+        }
+        results: dict[str, dict[str, Any]] = {}
+        for name, (target, source) in probes.items():
+            try:
+                transform = self.tf_buffer.lookup_transform(
+                    target,
+                    source,
+                    self._time_class(),
+                )
+                stamp = transform.header.stamp
+                stamp_seconds = float(stamp.sec) + float(stamp.nanosec) / 1_000_000_000
+                results[name] = {
+                    "ok": True,
+                    "target": target,
+                    "source": source,
+                    "age_sec": round(max(0.0, now_ros - stamp_seconds), 3)
+                    if stamp_seconds > 0.0
+                    else 0.0,
+                    "error": "",
+                    "checked_at": unix_time(),
+                }
+            except Exception as exc:
+                results[name] = {
+                    "ok": False,
+                    "target": target,
+                    "source": source,
+                    "age_sec": None,
+                    "error": f"{type(exc).__name__}: {exc}"[:240],
+                    "checked_at": unix_time(),
+                }
+        with self._diagnostic_lock:
+            self._tf_links = results
+
+    def diagnostic_snapshot(self) -> dict[str, Any]:
+        now = unix_time()
+        with self._diagnostic_lock:
+            heartbeat = self._executor_heartbeat
+            topic_seen = dict(self._topic_seen)
+            tf_links = {name: dict(value) for name, value in self._tf_links.items()}
+            publications = {
+                name: dict(value) for name, value in self._publications.items()
+            }
+
+        executor_age = max(0.0, now - heartbeat) if heartbeat else None
+        executor_alive = bool(
+            self.ready
+            and self.thread is not None
+            and self.thread.is_alive()
+            and executor_age is not None
+            and executor_age <= 3.0
+        )
+        topic_ages = {
+            name: {
+                "last_seen": stamp,
+                "age_sec": round(max(0.0, now - stamp), 2),
+            }
+            for name, stamp in topic_seen.items()
+        }
+
+        processes = self.hub.state.get("processes", {})
+        navigation_ready = bool(self.hub.state.get("navigation", {}).get("ready"))
+        missing: list[str] = []
+        stale: list[str] = []
+
+        def process_active(name: str) -> bool:
+            return processes.get(name, {}).get("active_state") == "active"
+
+        if navigation_ready or process_active("nav"):
+            if "map" not in topic_seen:
+                missing.append("/map")
+            tf_age = topic_ages.get("tf_pose", {}).get("age_sec")
+            if tf_age is None or tf_age > 3.0:
+                stale.append("TF map->base_footprint")
+        for process_name, topic_name, label in (
+            ("patrol", "patrol", "/patrol/status"),
+            ("isa", "isa", "/isa/status"),
+            ("evaluation", "evaluation", "/evaluation/status"),
+        ):
+            age = topic_ages.get(topic_name, {}).get("age_sec")
+            if process_active(process_name) and age is None:
+                missing.append(label)
+            elif process_active(process_name) and age is not None and age > 5.0:
+                stale.append(label)
+
+        map_base = tf_links.get("map_base", {})
+        if (
+            not executor_alive
+            and self.ready
+            and self.thread is not None
+            and self.thread.is_alive()
+            and now - self._started_at < 4.0
+        ):
+            status = "starting"
+            message = "Esperando primer heartbeat del executor"
+        elif not executor_alive:
+            status = "offline"
+            message = "Executor ROS sin heartbeat"
+        elif "TF map->base_footprint" in stale and not map_base.get("ok", False):
+            status = "blocked"
+            message = map_base.get("error") or "TF map->base_footprint no disponible"
+        elif missing or stale:
+            status = "partial"
+            details = missing + stale
+            message = "Sin datos: " + ", ".join(details)
+        elif not topic_seen:
+            status = "waiting"
+            message = "Executor activo; esperando topicos"
+        else:
+            status = "ok"
+            message = "Puente ROS recibiendo datos"
+
+        return {
+            "status": status,
+            "message": message,
+            "ready": self.ready,
+            "executor_alive": executor_alive,
+            "executor_age_sec": round(executor_age, 2) if executor_age is not None else None,
+            "thread_alive": bool(self.thread and self.thread.is_alive()),
+            "started_at": self._started_at,
+            "topics": topic_ages,
+            "tf": tf_links,
+            "publications": publications,
+            "missing": missing,
+            "stale": stale,
+            "updated_at": now,
+        }
 
     def start(self) -> None:
         try:
@@ -777,6 +972,7 @@ class RosBridge:
             self._time_class = Time
             self.node.create_timer(0.2, self._update_robot_pose)
             self.node.create_timer(1.0, self._update_navigation_health)
+            self.node.create_timer(1.0, self._heartbeat)
 
             self.executor = MultiThreadedExecutor(num_threads=3)
             self.executor.add_node(self.node)
@@ -828,13 +1024,16 @@ class RosBridge:
 
     def publish(self, subsystem: str, command: str) -> bool:
         if not self.ready or subsystem not in self.publishers:
+            self._record_publication(subsystem, command, False, "publisher no disponible")
             return False
         try:
             from std_msgs.msg import String
 
             self.publishers[subsystem].publish(String(data=command))
+            self._record_publication(subsystem, command, True)
             return True
-        except Exception:
+        except Exception as exc:
+            self._record_publication(subsystem, command, False, str(exc))
             return False
 
     def publish_json_topic(self, subsystem: str, payload: dict[str, Any]) -> bool:
@@ -867,6 +1066,12 @@ class RosBridge:
         frame_id: str = "map",
     ) -> bool:
         if not self.ready or "initialpose" not in self.publishers or self.node is None:
+            self._record_publication(
+                "initialpose",
+                f"x={float(x):.3f} y={float(y):.3f} yaw={float(yaw):.3f}",
+                False,
+                "publisher no disponible",
+            )
             return False
         try:
             from geometry_msgs.msg import PoseWithCovarianceStamped
@@ -883,8 +1088,14 @@ class RosBridge:
             msg.pose.covariance[7] = 0.25
             msg.pose.covariance[35] = 0.06853891945200942
             self.publishers["initialpose"].publish(msg)
+            self._record_publication(
+                "initialpose",
+                f"x={float(x):.3f} y={float(y):.3f} yaw={float(yaw):.3f}",
+                True,
+            )
             return True
-        except Exception:
+        except Exception as exc:
+            self._record_publication("initialpose", "pose estimate", False, str(exc))
             return False
 
     def _update_json(self, section: str, raw: str) -> dict[str, Any] | None:
@@ -894,12 +1105,14 @@ class RosBridge:
             return None
         if not isinstance(payload, dict):
             return None
+        self._touch_topic(section)
         payload["online"] = True
         payload["updated_at"] = unix_time()
         self.hub.from_thread(self.hub.update_section(section, payload))
         return payload
 
     def _on_patrol_status(self, msg: Any) -> None:
+        self._touch_topic("patrol")
         status = str(msg.data).strip()
         self.hub.from_thread(
             self.hub.update_section(
@@ -932,6 +1145,7 @@ class RosBridge:
             return
         if not isinstance(payload, dict):
             return
+        self._touch_topic(section)
         now = unix_time()
         payload.update(
             {
@@ -1056,6 +1270,7 @@ class RosBridge:
         payload = self._parse_json(msg.data)
         if payload is None:
             return
+        self._touch_topic("evaluation")
         payload["collector_online"] = True
         payload["updated_at"] = unix_time()
         run_path = Path(str(payload.get("run_path", "")))
@@ -1084,6 +1299,7 @@ class RosBridge:
         return payload if isinstance(payload, dict) else None
 
     def _on_map(self, msg: Any) -> None:
+        self._touch_topic("map")
         self._map_revision += 1
         info = msg.info
         origin = info.origin
@@ -1105,6 +1321,7 @@ class RosBridge:
         self.hub.from_thread(self.hub.update_section("map", payload))
 
     def _on_patrol_markers(self, msg: Any) -> None:
+        self._touch_topic("markers")
         points: dict[int, dict[str, Any]] = {}
 
         for marker in msg.markers:
@@ -1199,6 +1416,8 @@ class RosBridge:
         if self.tf_buffer is None or self._time_class is None:
             return
 
+        self._probe_tf_links()
+
         try:
             transform = self.tf_buffer.lookup_transform(
                 "map",
@@ -1229,6 +1448,7 @@ class RosBridge:
                 return
 
         self._pose_available = True
+        self._touch_topic("tf_pose")
         self.hub.from_thread(
             self.hub.update_section(
                 "robot_pose",
@@ -1809,6 +2029,100 @@ async def monitor_connections() -> None:
         await asyncio.sleep(5.0)
 
 
+def read_network_interfaces() -> list[dict[str, str]]:
+    try:
+        result = subprocess.run(
+            ["ip", "-j", "-4", "address", "show", "up"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+        if result.returncode != 0:
+            return []
+        interfaces: list[dict[str, str]] = []
+        for item in json.loads(result.stdout or "[]"):
+            name = str(item.get("ifname", ""))
+            if not name or name == "lo":
+                continue
+            for address in item.get("addr_info", []):
+                if address.get("family") != "inet":
+                    continue
+                interfaces.append(
+                    {
+                        "name": name,
+                        "address": str(address.get("local", "")),
+                        "prefix": str(address.get("prefixlen", "")),
+                    }
+                )
+        return interfaces
+    except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
+        return []
+
+
+def append_ros_diagnostic(payload: dict[str, Any]) -> None:
+    try:
+        ROS_DIAGNOSTICS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with ROS_DIAGNOSTICS_LOG.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n")
+    except OSError:
+        pass
+
+
+async def monitor_ros_diagnostics() -> None:
+    previous_signature: tuple[Any, ...] | None = None
+    network: list[dict[str, str]] = []
+    network_checked = 0.0
+    while True:
+        now = unix_time()
+        if now - network_checked >= 5.0:
+            network = await asyncio.to_thread(read_network_interfaces)
+            network_checked = now
+
+        payload = ros_bridge.diagnostic_snapshot()
+        payload["network"] = network
+        payload["log_path"] = str(ROS_DIAGNOSTICS_LOG)
+        await hub.update_section("ros_diagnostics", payload)
+        await hub.update_section(
+            "connections",
+            {
+                "ros": bool(payload.get("executor_alive")),
+                "updated_at": now,
+            },
+        )
+
+        tf_signature = tuple(
+            (name, bool(value.get("ok")), str(value.get("error", "")))
+            for name, value in sorted(payload.get("tf", {}).items())
+        )
+        network_signature = tuple(
+            (item.get("name"), item.get("address")) for item in network
+        )
+        signature = (
+            payload.get("status"),
+            payload.get("message"),
+            tuple(payload.get("missing", [])),
+            tuple(payload.get("stale", [])),
+            tf_signature,
+            network_signature,
+        )
+        if signature != previous_signature:
+            record = dict(payload)
+            record["recorded_at"] = now
+            await asyncio.to_thread(append_ros_diagnostic, record)
+            if previous_signature is not None:
+                status = str(payload.get("status", "offline"))
+                level = "error" if status in {"blocked", "offline"} else "warn" if status == "partial" else "ok"
+                await hub.add_event(
+                    "dashboard",
+                    f"ROS bridge {status.upper()}: {payload.get('message', '')}",
+                    level,
+                )
+            previous_signature = signature
+
+        await asyncio.sleep(1.0)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     hub.bind_loop(asyncio.get_running_loop())
@@ -1818,6 +2132,7 @@ async def lifespan(_: FastAPI):
     vision_task = asyncio.create_task(vision_monitor.monitor())
     health_task = asyncio.create_task(orin_health_monitor.monitor())
     evaluation_task = asyncio.create_task(evaluation_monitor.monitor())
+    ros_diagnostic_task = asyncio.create_task(monitor_ros_diagnostics())
     try:
         yield
     finally:
@@ -1826,6 +2141,7 @@ async def lifespan(_: FastAPI):
         vision_task.cancel()
         health_task.cancel()
         evaluation_task.cancel()
+        ros_diagnostic_task.cancel()
         with suppress(asyncio.CancelledError):
             await monitor_task
         with suppress(asyncio.CancelledError):
@@ -1836,10 +2152,12 @@ async def lifespan(_: FastAPI):
             await health_task
         with suppress(asyncio.CancelledError):
             await evaluation_task
+        with suppress(asyncio.CancelledError):
+            await ros_diagnostic_task
         ros_bridge.stop()
 
 
-app = FastAPI(title="EMMA Dashboard", version="1.7.0", lifespan=lifespan)
+app = FastAPI(title="EMMA Dashboard", version="1.11.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount(
     "/vendor",
@@ -2304,6 +2622,29 @@ async def controller_emergency_reset() -> dict[str, Any]:
 
     await hub.add_event("system", "C33 controller reset ejecutado", "warn")
     return {"ok": True, "output": output}
+
+
+@app.post("/api/dashboard/shutdown")
+async def dashboard_shutdown() -> dict[str, Any]:
+    await hub.add_event("dashboard", "Apagado solicitado desde la interfaz", "command")
+    unit_name = f"emma-dashboard-stop-{int(time.monotonic() * 1000)}"
+    code, stdout, stderr = await service_manager._run(
+        "systemd-run",
+        "--user",
+        "--quiet",
+        "--collect",
+        f"--unit={unit_name}",
+        "--on-active=1s",
+        "/usr/bin/systemctl",
+        "--user",
+        "stop",
+        "emma-dashboard.service",
+        timeout=5.0,
+    )
+    if code != 0:
+        detail = stderr or stdout or "No se pudo programar el apagado"
+        raise HTTPException(status_code=503, detail=detail)
+    return {"ok": True, "scheduled": True}
 
 
 @app.websocket("/ws/state")

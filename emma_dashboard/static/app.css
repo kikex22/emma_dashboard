@@ -598,6 +598,12 @@ textarea:focus-visible {
   flex: 0 0 auto;
 }
 
+.dashboard-power-button {
+  width: 32px;
+  height: 32px;
+  background: #281416;
+}
+
 .connection-pill,
 .module-state {
   display: inline-flex;
@@ -782,6 +788,97 @@ textarea:focus-visible {
 
 .orin-health-strip[data-state="critical"] .orin-health-title strong,
 .orin-health-strip[data-state="offline"] .orin-health-title strong {
+  color: var(--red);
+}
+
+.ros-diagnostic-strip {
+  display: grid;
+  grid-template-columns: minmax(230px, 1.35fr) minmax(90px, 0.55fr) minmax(180px, 1fr) repeat(3, minmax(82px, 0.55fr)) minmax(180px, 1fr);
+  gap: 1px;
+  min-height: 64px;
+  border-bottom: 1px solid var(--line);
+  background: var(--line);
+}
+
+.ros-diagnostic-title,
+.ros-diagnostic-metric {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8px 14px;
+  background: #090c0e;
+}
+
+.ros-diagnostic-title {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.ros-diagnostic-title div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ros-diagnostic-title span:not(.status-dot),
+.ros-diagnostic-metric span {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.64rem;
+}
+
+.ros-diagnostic-title strong,
+.ros-diagnostic-metric strong {
+  overflow: hidden;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ros-diagnostic-title small {
+  overflow: hidden;
+  max-width: 36ch;
+  color: var(--muted);
+  font: 0.62rem/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ros-diagnostic-strip[data-state="ok"] .status-dot {
+  background: var(--green);
+  box-shadow: 0 0 9px rgb(63 227 139 / 55%);
+}
+
+.ros-diagnostic-strip[data-state="ok"] .ros-diagnostic-title strong {
+  color: var(--green);
+}
+
+.ros-diagnostic-strip[data-state="waiting"] .status-dot,
+.ros-diagnostic-strip[data-state="partial"] .status-dot,
+.ros-diagnostic-strip[data-state="starting"] .status-dot {
+  background: var(--amber);
+}
+
+.ros-diagnostic-strip[data-state="waiting"] .ros-diagnostic-title strong,
+.ros-diagnostic-strip[data-state="partial"] .ros-diagnostic-title strong,
+.ros-diagnostic-strip[data-state="starting"] .ros-diagnostic-title strong {
+  color: var(--amber);
+}
+
+.ros-diagnostic-strip[data-state="blocked"] .status-dot,
+.ros-diagnostic-strip[data-state="offline"] .status-dot {
+  background: var(--red);
+  box-shadow: 0 0 9px rgb(255 89 100 / 40%);
+}
+
+.ros-diagnostic-strip[data-state="blocked"] .ros-diagnostic-title strong,
+.ros-diagnostic-strip[data-state="offline"] .ros-diagnostic-title strong {
   color: var(--red);
 }
 
@@ -2116,6 +2213,15 @@ button:disabled {
     grid-template-columns: minmax(170px, 1fr) repeat(5, minmax(96px, 1fr));
   }
 
+  .ros-diagnostic-strip {
+    grid-template-columns: repeat(4, minmax(130px, 1fr));
+  }
+
+  .ros-diagnostic-title,
+  .ros-diagnostic-metric.network {
+    grid-column: span 2;
+  }
+
   .control-panel {
     grid-column: 1 / -1;
     display: grid;
@@ -2194,6 +2300,16 @@ button:disabled {
 
   .orin-health-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ros-diagnostic-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ros-diagnostic-title,
+  .ros-diagnostic-metric.wide,
+  .ros-diagnostic-metric.network {
+    grid-column: 1 / -1;
   }
 
   .orin-health-title,
@@ -2424,7 +2540,7 @@ button:disabled {
 }
 
 
-/* ===== V1.7 / Carolina ===== */
+/* ===== V1.11 / Carolina ===== */
 .carolina-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 370px);

@@ -1,0 +1,14 @@
+[Unit]
+Description=Restore EMMA clock after the late Jetson RTC reset
+After=local-fs.target systemd-udev-trigger.service systemd-timesyncd.service
+Before=network-online.target
+Wants=systemd-timesyncd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/emma-clock-guard restore
+ExecStop=/usr/local/libexec/emma-clock-guard save
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

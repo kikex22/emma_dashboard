@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically save the last valid EMMA system time
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Unit=emma-clock-save.service
+
+[Install]
+WantedBy=timers.target

@@ -1,4 +1,4 @@
-# EMMA Dashboard V1.7
+# EMMA Dashboard V1.11
 
 Panel de operacion que vive en el Jetson Orin y se conecta directamente a
 ROS 2. Incluye controles de Carolina Patrol, terminal local, gestion de Nav2 y
