@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <title>EMMA Control</title>
     <link rel="stylesheet" href="/vendor/@xterm/xterm/css/xterm.css">
-    <link rel="stylesheet" href="/static/app.css?v=1.11">
+    <link rel="stylesheet" href="/static/app.css?v=1.13">
   </head>
   <body>
     <div class="app-shell">
@@ -15,7 +15,7 @@
           <span class="brand-mark" aria-hidden="true"></span>
           <div>
             <strong>EMMA CONTROL</strong>
-            <span>ORIN / OPERATIONS V1.11</span>
+            <span>ORIN / OPERATIONS V1.13</span>
           </div>
         </div>
 
@@ -28,6 +28,9 @@
           </button>
           <button class="tab-button" data-view-target="isa" role="tab" aria-selected="false">
             <i data-lucide="bot"></i><span>ISA</span>
+          </button>
+          <button class="tab-button" data-view-target="arm" role="tab" aria-selected="false">
+            <i data-lucide="hand"></i><span>Brazo</span>
           </button>
           <button class="tab-button" data-view-target="vision" role="tab" aria-selected="false">
             <i data-lucide="scan-eye"></i><span>Vision</span>
@@ -192,6 +195,22 @@
                     <button class="icon-button danger" data-process="isa" data-process-action="stop" data-confirm="Detener el orquestador ISA?" title="Detener ISA" aria-label="Detener ISA"><i data-lucide="square"></i></button>
                     <button class="icon-button" data-process="isa" data-process-action="restart" title="Reiniciar ISA" aria-label="Reiniciar ISA"><i data-lucide="refresh-cw"></i></button>
                     <button class="icon-button" data-process-logs="isa" title="Ver logs de ISA" aria-label="Ver logs de ISA"><i data-lucide="scroll-text"></i></button>
+                  </div>
+                </div>
+
+                <div class="process-row" id="process-arm" data-state="offline">
+                  <div class="process-identity">
+                    <span class="status-dot"></span>
+                    <div><strong>Brazo</strong><span>emma-arm.service</span></div>
+                  </div>
+                  <div class="process-metric"><span>ESTADO</span><strong data-process-field="active_state">UNKNOWN</strong></div>
+                  <div class="process-metric"><span>PID</span><strong data-process-field="main_pid">--</strong></div>
+                  <div class="process-metric"><span>ACTIVO</span><strong data-process-field="uptime">--</strong></div>
+                  <div class="process-actions">
+                    <button class="icon-button positive" data-process="arm" data-process-action="start" title="Iniciar brazo" aria-label="Iniciar brazo"><i data-lucide="play"></i></button>
+                    <button class="icon-button danger" data-process="arm" data-process-action="stop" data-confirm="Detener el brazo y cerrar su sesion C3?" title="Detener brazo" aria-label="Detener brazo"><i data-lucide="square"></i></button>
+                    <button class="icon-button" data-process="arm" data-process-action="restart" data-confirm="Reiniciar el proceso completo del brazo?" title="Reiniciar brazo" aria-label="Reiniciar brazo"><i data-lucide="refresh-cw"></i></button>
+                    <button class="icon-button" data-process-logs="arm" title="Ver logs del brazo" aria-label="Ver logs del brazo"><i data-lucide="scroll-text"></i></button>
                   </div>
                 </div>
               </div>
@@ -486,6 +505,83 @@
           </div>
         </section>
 
+        <section class="view arm-view" id="view-arm" aria-label="Control del brazo">
+          <div class="arm-toolbar">
+            <div class="vision-identity">
+              <i data-lucide="hand"></i>
+              <div><strong>Brazo EMMA</strong><span>C3 / STM32 / POSES</span></div>
+            </div>
+            <span class="module-state" id="arm-online" data-state="offline">
+              <span class="status-dot"></span>OFFLINE
+            </span>
+            <div class="toolbar-actions">
+              <button class="icon-button positive" data-process="arm" data-process-action="start" title="Iniciar brazo" aria-label="Iniciar brazo"><i data-lucide="play"></i></button>
+              <button class="icon-button danger" data-process="arm" data-process-action="stop" data-confirm="Detener el brazo y cerrar su sesion C3?" title="Detener brazo" aria-label="Detener brazo"><i data-lucide="square"></i></button>
+              <button class="icon-button" data-process="arm" data-process-action="restart" data-confirm="Reiniciar el proceso completo del brazo?" title="Reiniciar brazo" aria-label="Reiniciar brazo"><i data-lucide="refresh-cw"></i></button>
+            </div>
+          </div>
+
+          <div class="arm-workspace">
+            <section class="ops-panel arm-status-panel">
+              <header class="panel-header">
+                <div><span class="panel-kicker">LIVE STATE</span><h2>Estado C3</h2></div>
+              </header>
+              <dl class="telemetry-list arm-telemetry">
+                <div><dt>Servicio</dt><dd id="arm-service-state">INACTIVE</dd></div>
+                <div><dt>STM32</dt><dd id="arm-controller-state">SIN DATOS</dd></div>
+                <div><dt>Core</dt><dd id="arm-core-state">OFFLINE</dd></div>
+                <div><dt>Poses</dt><dd id="arm-poses-state">OFFLINE</dd></div>
+                <div><dt>Teleop</dt><dd id="arm-teleop-state">OFFLINE</dd></div>
+                <div><dt>Ultimo comando</dt><dd id="arm-last-command">--</dd></div>
+              </dl>
+              <div class="arm-ready-banner" id="arm-ready-banner" data-state="offline">
+                <span class="status-dot"></span>
+                <strong id="arm-ready-label">NO LISTO</strong>
+                <small id="arm-ready-reason">Esperando C3</small>
+              </div>
+            </section>
+
+            <section class="ops-panel arm-quick-panel">
+              <header class="panel-header">
+                <div><span class="panel-kicker green">C3 QUICK</span><h2>Acciones base</h2></div>
+              </header>
+              <div class="arm-command-grid">
+                <button class="command-button positive" data-arm-command="start" data-confirm="Mover el brazo a la posicion inicial?"><i data-lucide="house"></i><span>Posicion inicial</span></button>
+                <button class="command-button" data-arm-command="home" data-confirm="Mover el brazo a home?"><i data-lucide="locate-fixed"></i><span>Home</span></button>
+                <button class="command-button" data-arm-command="gripper_open"><i data-lucide="chevrons-left-right"></i><span>Abrir gripper</span></button>
+                <button class="command-button" data-arm-command="gripper_close" data-confirm="Cerrar el gripper?"><i data-lucide="chevrons-right-left"></i><span>Cerrar gripper</span></button>
+                <button class="command-button danger arm-stop-command" data-arm-command="stop"><i data-lucide="octagon"></i><span>STOP brazo</span></button>
+                <button class="command-button danger" id="arm-controller-reset"><i data-lucide="siren"></i><span>Reset controller</span></button>
+              </div>
+            </section>
+
+            <section class="ops-panel arm-objects-panel">
+              <header class="panel-header">
+                <div><span class="panel-kicker cyan">TELEOP MODES</span><h2>Objetos</h2></div>
+              </header>
+              <div class="arm-object-grid" id="arm-object-grid"></div>
+            </section>
+
+            <section class="ops-panel arm-legacy-panel">
+              <header class="panel-header">
+                <div><span class="panel-kicker amber">POSES ANTERIORES</span><h2>C3 legacy</h2></div>
+              </header>
+              <div class="arm-legacy-grid" id="arm-legacy-grid"></div>
+            </section>
+
+            <section class="ops-panel arm-journal-panel">
+              <header class="panel-header">
+                <div><span class="panel-kicker">JOURNALD</span><h2>Consola del brazo</h2></div>
+                <div class="toolbar-actions">
+                  <button class="icon-button" id="arm-logs-refresh" title="Actualizar logs" aria-label="Actualizar logs"><i data-lucide="refresh-cw"></i></button>
+                  <button class="icon-button" data-process-logs="arm" title="Ampliar logs" aria-label="Ampliar logs"><i data-lucide="maximize-2"></i></button>
+                </div>
+              </header>
+              <pre id="arm-logs-content">Sin entradas en el journal</pre>
+            </section>
+          </div>
+        </section>
+
         <section class="view vision-view" id="view-vision" aria-label="Vision artificial">
           <div class="vision-toolbar">
             <div class="vision-identity">
@@ -736,6 +832,7 @@
               <button class="filter-button active" data-filter="all">Todos</button>
               <button class="filter-button" data-filter="patrol">Patrol</button>
               <button class="filter-button" data-filter="isa">ISA</button>
+              <button class="filter-button" data-filter="arm">Brazo</button>
               <button class="filter-button" data-filter="vision">Vision</button>
               <button class="filter-button" data-filter="error">Alertas</button>
             </div>
@@ -775,6 +872,6 @@
     <script src="/vendor/lucide/dist/umd/lucide.js"></script>
     <script src="/vendor/@xterm/xterm/lib/xterm.js"></script>
     <script src="/vendor/@xterm/addon-fit/lib/addon-fit.js"></script>
-    <script src="/static/app.js?v=1.11"></script>
+    <script src="/static/app.js?v=1.13"></script>
   </body>
 </html>

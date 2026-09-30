@@ -4,6 +4,7 @@ const dashboardState = {
   orin_health: {},
   patrol: {},
   isa: {},
+  arm: {},
   base: {},
   navigation: {},
   map: {},
@@ -167,6 +168,107 @@ function renderProcess(name, status = {}) {
     const mapSelect = byId("nav-map-select");
     if (mapSelect) mapSelect.disabled = !loaded || active || busy || !mapSelect.value;
   }
+}
+
+function renderArm() {
+  const arm = dashboardState.arm || {};
+  const process = dashboardState.processes?.arm || {};
+  const active = process.active_state === "active";
+  const armFresh = isFresh(arm, 5);
+  const online = active && armFresh && Boolean(arm.online);
+  const motionReady = active && armFresh && Boolean(arm.controller_connected) && Boolean(arm.poses_online);
+
+  setStateBadge(
+    "arm-online",
+    online,
+    "ONLINE",
+    active ? "INICIANDO" : "OFFLINE",
+    active && !online
+  );
+  text("arm-service-state", String(process.active_state || "unknown").toUpperCase());
+  text(
+    "arm-controller-state",
+    arm.controller_connected
+      ? "CONECTADO"
+      : arm.controller_message || (active ? "ESPERANDO" : "OFFLINE")
+  );
+  text("arm-core-state", arm.core_online ? "ONLINE" : "OFFLINE");
+  text("arm-poses-state", arm.poses_online ? "ONLINE" : "OFFLINE");
+  text("arm-teleop-state", arm.teleop_online ? "ONLINE" : "OFFLINE");
+  const lastCommand = arm.last_command === "joint" && arm.last_joint !== null
+    ? `J${arm.last_joint} / ${arm.last_pulse}`
+    : arm.last_command;
+  text("arm-last-command", lastCommand);
+  text("arm-ready-label", motionReady ? "LISTO" : active ? "BLOQUEADO" : "DETENIDO");
+  text("arm-ready-reason", motionReady ? "STM32 y PosePlayer listos" : arm.ready_reason || arm.controller_message || "Servicio detenido");
+  const readyBanner = byId("arm-ready-banner");
+  if (readyBanner) readyBanner.dataset.state = motionReady ? "online" : active ? "warn" : "offline";
+
+  document.querySelectorAll("[data-arm-command]").forEach((button) => {
+    const command = button.dataset.armCommand;
+    button.disabled = command === "stop" ? !active : !motionReady;
+  });
+  renderArmPoseGroups(arm.pose_catalog || {});
+  renderVisionProcessControls("arm", process, true);
+}
+
+function renderArmPoseGroups(catalog) {
+  const groups = Array.isArray(catalog.groups) ? catalog.groups : [];
+  const objectContainer = byId("arm-object-grid");
+  const legacyContainer = byId("arm-legacy-grid");
+  const process = dashboardState.processes?.arm || {};
+  const arm = dashboardState.arm || {};
+  const motionReady = process.active_state === "active"
+    && isFresh(arm, 5)
+    && Boolean(arm.controller_connected)
+    && Boolean(arm.poses_online);
+
+  if (objectContainer) objectContainer.replaceChildren();
+  if (legacyContainer) legacyContainer.replaceChildren();
+
+  groups.forEach((group) => {
+    const poses = Array.isArray(group.poses) ? group.poses : [];
+    if (group.id === "legacy") {
+      poses.forEach((pose) => {
+        if (!legacyContainer) return;
+        const button = armPoseButton(pose, motionReady);
+        legacyContainer.append(button);
+      });
+      return;
+    }
+
+    if (!objectContainer) return;
+    const card = document.createElement("article");
+    card.className = "arm-object-card";
+    const title = document.createElement("div");
+    title.className = "arm-object-title";
+    const strong = document.createElement("strong");
+    strong.textContent = group.label || group.id;
+    const small = document.createElement("small");
+    small.textContent = group.id === "bottle" ? "1 en C3" : group.id === "can" ? "2 en C3" : "3 en C3";
+    title.append(strong, small);
+    const grid = document.createElement("div");
+    grid.className = "arm-pose-grid";
+    poses.forEach((pose) => grid.append(armPoseButton(pose, motionReady)));
+    card.append(title, grid);
+    objectContainer.append(card);
+  });
+}
+
+function armPoseButton(pose, motionReady) {
+  const button = document.createElement("button");
+  button.className = "arm-pose-button";
+  button.dataset.armPose = pose.name || "";
+  button.disabled = !motionReady || !pose.available;
+  const label = document.createElement("strong");
+  label.textContent = pose.label || pose.name || "--";
+  const meta = document.createElement("span");
+  const duration = Number(pose.duration_ms);
+  meta.textContent = pose.available
+    ? `${pose.name}${Number.isFinite(duration) ? ` / ${duration}ms` : ""}`
+    : `${pose.name || "--"} / no cargada`;
+  button.append(label, meta);
+  return button;
 }
 
 function renderVisionProcessControls(name, status = {}, available = true) {
@@ -803,6 +905,8 @@ function renderState() {
   renderProcess("nav", processes.nav);
   renderProcess("patrol", processes.patrol);
   renderProcess("isa", processes.isa);
+  renderProcess("arm", processes.arm);
+  renderArm();
   renderVision();
   renderEvaluation();
 
@@ -1268,6 +1372,20 @@ async function sendCommand(subsystem, command, confirmation = "") {
   }
 }
 
+async function loadArmLogs() {
+  const output = byId("arm-logs-content");
+  if (!output) return;
+  try {
+    const response = await fetch("/api/processes/arm/logs?lines=100");
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || "No se pudieron leer los logs");
+    output.textContent = payload.logs || "Sin entradas en el journal";
+    output.scrollTop = output.scrollHeight;
+  } catch (error) {
+    output.textContent = error.message || "Error leyendo logs";
+  }
+}
+
 async function sendInitialPose(pose) {
   if (!pose) return false;
   const confirmed = await confirmAction(
@@ -1417,6 +1535,7 @@ function switchView(viewName) {
   if (viewName === "terminal") startTerminal();
   if (viewName === "carolina") window.setTimeout(requestMapDraw, 40);
   if (viewName === "evaluation") loadEvaluation();
+  if (viewName === "arm") loadArmLogs();
   if (viewName === "vision" || viewName === "isa") window.setTimeout(renderVision, 40);
   else {
     syncVisionPlayer("astra", false);
@@ -1623,6 +1742,9 @@ document.querySelectorAll("iframe[id$=\"-arm-frame\"]").forEach((frame) => {
 });
 
 window.setInterval(publishVideoReceiverStatus, 1000);
+window.setInterval(() => {
+  if (byId("view-arm")?.classList.contains("active")) loadArmLogs();
+}, 3000);
 
 document.querySelectorAll(".tab-button").forEach((button) => {
   button.addEventListener("click", () => switchView(button.dataset.viewTarget));
@@ -1638,13 +1760,27 @@ document.querySelectorAll("[data-subsystem][data-command]").forEach((button) => 
   });
 });
 
+document.querySelectorAll("[data-arm-command]").forEach((button) => {
+  button.addEventListener("click", () => {
+    sendCommand("arm", button.dataset.armCommand, button.dataset.confirm || "");
+  });
+});
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-arm-pose]");
+  if (!button) return;
+  sendCommand("arm", button.dataset.armPose);
+});
+
 byId("send-isa-command").addEventListener("click", () => {
   const command = byId("isa-command-select").value;
   if (command) sendCommand("isa", command);
 });
 
 byId("controller-reset-c33").addEventListener("click", controllerEmergencyReset);
+byId("arm-controller-reset").addEventListener("click", controllerEmergencyReset);
 byId("dashboard-power-off").addEventListener("click", shutdownDashboard);
+byId("arm-logs-refresh").addEventListener("click", loadArmLogs);
 
 document.querySelectorAll('input[name="evaluation-type"]').forEach((input) => {
   input.addEventListener("change", renderEvaluation);

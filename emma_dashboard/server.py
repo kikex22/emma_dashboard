@@ -64,6 +64,10 @@ ROS_DIAGNOSTICS_LOG = Path(
         "/home/jetson/.emma/dashboard/ros_diagnostics.jsonl",
     )
 )
+ARM_CONFIG_DIRS = [
+    Path(os.environ.get("EMMA_ARM_INSTALL_CONFIG_DIR", "/home/jetson/emma/install/emma_arm/share/emma_arm/config")),
+    Path(os.environ.get("EMMA_ARM_SOURCE_CONFIG_DIR", "/home/jetson/emma/src/emma_arm/config")),
+]
 
 ORIN_HOST = os.environ.get("EMMA_ORIN_HOST", "orin")
 MEDIAMTX_API = os.environ.get("EMMA_MEDIAMTX_API", "http://127.0.0.1:9997")
@@ -108,6 +112,10 @@ MANAGED_SERVICES = {
     "isa": {
         "unit": "emma-isa.service",
         "label": "ISA + OD local",
+    },
+    "arm": {
+        "unit": "emma-arm.service",
+        "label": "Brazo",
     },
     "evaluation": {
         "unit": "emma-evaluation.service",
@@ -161,6 +169,13 @@ ISA_COMMANDS = {
     "f",
     "p",
     "h",
+}
+ARM_DIRECT_COMMANDS = {
+    "start",
+    "home",
+    "gripper_open",
+    "gripper_close",
+    "stop",
 }
 RECORDING_COMMANDS = {
     "start_both",
@@ -367,6 +382,118 @@ def available_navigation_maps() -> list[str]:
     return sorted(data_names & posegraph_names, key=str.casefold)
 
 
+ARM_POSE_GROUPS = {
+    "bottle": {
+        "label": "Bottle",
+        "poses": [
+            ("bottle.pre_grasp", "pre lateral"),
+            ("bottle.grip", "cerrar"),
+            ("bottle.lift", "elevar"),
+            ("bottle.full_lift", "full lift"),
+            ("bottle.front_ready", "ready frontal"),
+            ("bottle.front_pick", "pick frontal"),
+            ("bottle.front_lift", "lift frontal"),
+        ],
+    },
+    "can": {
+        "label": "Can",
+        "poses": [
+            ("can.pre_grasp", "pre lateral"),
+            ("can.grip", "cerrar"),
+            ("can.lift", "elevar"),
+            ("can.full_lift", "full lift"),
+            ("can.front_ready", "ready frontal"),
+            ("can.front_pick", "pick frontal"),
+            ("can.front_lift", "lift frontal"),
+        ],
+    },
+    "cup": {
+        "label": "Cup",
+        "poses": [
+            ("cup.pre_grasp", "pre lateral"),
+            ("cup.grip", "cerrar"),
+            ("cup.lift", "elevar"),
+            ("cup.full_lift", "full lift"),
+            ("cup.front_ready", "ready frontal"),
+            ("cup.front_pick", "pick frontal"),
+            ("cup.front_lift", "lift frontal"),
+        ],
+    },
+    "legacy": {
+        "label": "C3 legacy",
+        "poses": [
+            ("start", "start"),
+            ("start_center", "start center"),
+            ("home", "home"),
+            ("lateral_log_pre", "lateral pre"),
+            ("lateral_grip", "cerrar lateral"),
+            ("lateral_log_lift", "lateral lift"),
+            ("minican_pre_lift", "minican pre"),
+            ("cup_pre_lift", "cup pre"),
+            ("bottle_lift", "bottle lift"),
+            ("pow", "pow ready"),
+            ("pow_pick", "pow pick"),
+            ("pow_lift", "pow lift"),
+            ("bin", "bin"),
+            ("drop", "drop / abrir"),
+            ("side_drop", "side drop"),
+        ],
+    },
+}
+
+
+def load_arm_pose_catalog() -> dict[str, Any]:
+    def load_yaml(path: Path) -> dict[str, Any]:
+        try:
+            import yaml
+
+            payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    poses: dict[str, Any] = {}
+    source_dir = ""
+    for config_dir in ARM_CONFIG_DIRS:
+        if not config_dir.is_dir():
+            continue
+        loaded: dict[str, Any] = {}
+        main_file = config_dir / "bottle_pick_pose.yaml"
+        if main_file.is_file():
+            loaded.update(load_yaml(main_file))
+        poses_dir = config_dir / "poses"
+        if poses_dir.is_dir():
+            for pose_file in sorted(poses_dir.glob("*.yaml")):
+                loaded.update(load_yaml(pose_file))
+        if loaded:
+            poses = loaded
+            source_dir = str(config_dir)
+            break
+
+    groups: list[dict[str, Any]] = []
+    for group_id, config in ARM_POSE_GROUPS.items():
+        items = [
+            {
+                "name": pose_name,
+                "label": label,
+                "available": pose_name in poses,
+                "duration_ms": poses.get(pose_name, {}).get("duration_ms")
+                or poses.get(pose_name, {}).get("speed_ms"),
+            }
+            for pose_name, label in config["poses"]
+        ]
+        groups.append({"id": group_id, "label": config["label"], "poses": items})
+    return {
+        "source": source_dir,
+        "poses": sorted(poses),
+        "groups": groups,
+        "updated_at": unix_time(),
+    }
+
+
+ARM_POSE_CATALOG = load_arm_pose_catalog()
+
+
 def active_navigation_map() -> str:
     active_map_file = NAV_MAPS_DIR / ".active_map"
     try:
@@ -455,6 +582,21 @@ class DashboardHub:
                 "distance": None,
                 "offset": None,
                 "bin_active": False,
+                "updated_at": 0,
+            },
+            "arm": {
+                "online": False,
+                "core_online": False,
+                "poses_online": False,
+                "teleop_online": False,
+                "controller_service": False,
+                "controller_connected": False,
+                "controller_message": "",
+                "last_command": "",
+                "last_joint": None,
+                "last_pulse": None,
+                "ready_reason": "Servicio detenido",
+                "pose_catalog": ARM_POSE_CATALOG,
                 "updated_at": 0,
             },
             "base": {
@@ -632,6 +774,8 @@ class RosBridge:
         self._tf_links: dict[str, dict[str, Any]] = {}
         self._last_tf_probe = 0.0
         self._publications: dict[str, dict[str, Any]] = {}
+        self._arm_connection_client: Any = None
+        self._arm_connection_future: Any = None
 
     def _heartbeat(self) -> None:
         with self._diagnostic_lock:
@@ -819,6 +963,8 @@ class RosBridge:
             from geometry_msgs.msg import PoseWithCovarianceStamped
             from nav_msgs.msg import OccupancyGrid
             from std_msgs.msg import String
+            from std_msgs.msg import Int32MultiArray
+            from std_srvs.srv import Trigger
             from tf2_ros import Buffer, TransformListener
             from visualization_msgs.msg import MarkerArray
 
@@ -831,6 +977,15 @@ class RosBridge:
             )
             self.publishers["isa"] = self.node.create_publisher(
                 String, "/isa/cmd", 10
+            )
+            self.publishers["arm_cmd"] = self.node.create_publisher(
+                String, "/arm/cmd", 10
+            )
+            self.publishers["arm_pose"] = self.node.create_publisher(
+                String, "/arm/pose_cmd", 10
+            )
+            self.publishers["arm_joint"] = self.node.create_publisher(
+                Int32MultiArray, "/arm/joint_cmd", 10
             )
             self.publishers["record_astra"] = self.node.create_publisher(
                 String, "/od/recording_cmd", 10
@@ -856,6 +1011,15 @@ class RosBridge:
             )
             self.node.create_subscription(
                 String, "/isa/status", self._on_isa_json, 10
+            )
+            self.node.create_subscription(
+                String, "/arm/joint_status", self._on_arm_joint_status, 10
+            )
+            self.node.create_subscription(
+                String,
+                "/ros_robot_controller/connection_status_json",
+                self._on_arm_controller_status,
+                10,
             )
             self.node.create_subscription(
                 String,
@@ -973,6 +1137,10 @@ class RosBridge:
             self.node.create_timer(0.2, self._update_robot_pose)
             self.node.create_timer(1.0, self._update_navigation_health)
             self.node.create_timer(1.0, self._heartbeat)
+            self._arm_connection_client = self.node.create_client(
+                Trigger, "/ros_robot_controller/connection_status"
+            )
+            self.node.create_timer(2.0, self._update_arm_health)
 
             self.executor = MultiThreadedExecutor(num_threads=3)
             self.executor.add_node(self.node)
@@ -1047,6 +1215,36 @@ class RosBridge:
             )
             return True
         except Exception:
+            return False
+
+    def publish_arm_command(self, command: str) -> bool:
+        if command in ARM_POSE_CATALOG.get("poses", []):
+            if self.subscriber_count("arm_pose") < 1:
+                self._record_publication("arm_pose", command, False, "sin suscriptor")
+                return False
+            return self.publish("arm_pose", command)
+        if command == "stop":
+            if self.subscriber_count("arm_cmd") < 1:
+                self._record_publication("arm_cmd", command, False, "sin suscriptor")
+                return False
+            return self.publish("arm_cmd", "stop")
+        pulses = {"gripper_open": 0, "gripper_close": 580}
+        if command not in pulses or not self.ready or "arm_joint" not in self.publishers:
+            self._record_publication("arm_joint", command, False, "comando no disponible")
+            return False
+        if self.subscriber_count("arm_joint") < 1:
+            self._record_publication("arm_joint", command, False, "sin suscriptor")
+            return False
+        try:
+            from std_msgs.msg import Int32MultiArray
+
+            self.publishers["arm_joint"].publish(
+                Int32MultiArray(data=[6, pulses[command], 600])
+            )
+            self._record_publication("arm_joint", command, True)
+            return True
+        except Exception as exc:
+            self._record_publication("arm_joint", command, False, str(exc))
             return False
 
     def subscriber_count(self, subsystem: str) -> int:
@@ -1131,6 +1329,172 @@ class RosBridge:
 
     def _on_isa_json(self, msg: Any) -> None:
         self._update_json("isa", msg.data)
+
+    def _on_arm_joint_status(self, msg: Any) -> None:
+        try:
+            payload = json.loads(msg.data)
+        except (TypeError, json.JSONDecodeError):
+            return
+        if not isinstance(payload, dict):
+            return
+        self._touch_topic("arm")
+        self.hub.from_thread(
+            self.hub.update_section(
+                "arm",
+                {
+                    "last_command": "joint",
+                    "last_joint": payload.get("joint"),
+                    "last_pulse": payload.get("pulse"),
+                    "updated_at": unix_time(),
+                },
+            )
+        )
+
+    def _on_arm_controller_status(self, msg: Any) -> None:
+        try:
+            payload = json.loads(msg.data)
+        except (TypeError, json.JSONDecodeError):
+            return
+        if not isinstance(payload, dict):
+            return
+        self._touch_topic("arm_controller")
+        connected = bool(payload.get("connected"))
+        device = str(payload.get("device") or "")
+        error = str(payload.get("last_error") or "")
+        message = (
+            f"connected=True device={device or 'none'}"
+            if connected
+            else error or f"connected=False device={device or 'none'}"
+        )
+        arm = self.hub.state.get("arm", {})
+        self.hub.from_thread(
+            self.hub.update_section(
+                "arm",
+                {
+                    "controller_service": True,
+                    "controller_connected": connected,
+                    "controller_message": message[:160],
+                    "controller_status": payload,
+                    "online": bool(
+                        connected
+                        and arm.get("core_online", False)
+                        and arm.get("poses_online", False)
+                    ),
+                    "ready_reason": (
+                        "Listo"
+                        if connected and arm.get("core_online", False) and arm.get("poses_online", False)
+                        else message[:160]
+                    ),
+                    "updated_at": unix_time(),
+                },
+            )
+        )
+
+    def _update_arm_health(self) -> None:
+        if self.node is None:
+            return
+        try:
+            node_names = set(self.node.get_node_names())
+        except Exception:
+            node_names = set()
+        core_online = "emma_arm_core" in node_names
+        poses_online = bool({"emma_pose_player", "emma_arm_poses"} & node_names)
+        teleop_online = "emma_arm_teleop_keys" in node_names
+        controller_service = bool(
+            self._arm_connection_client
+            and self._arm_connection_client.service_is_ready()
+        )
+        current = self.hub.state.get("arm", {})
+        values = {
+            "core_online": core_online,
+            "poses_online": poses_online,
+            "teleop_online": teleop_online,
+            "controller_service": controller_service,
+            "online": bool(
+                core_online
+                and poses_online
+                and current.get("controller_connected", False)
+            ),
+            "ready_reason": (
+                "Listo"
+                if core_online and poses_online and current.get("controller_connected", False)
+                else "Esperando emma_arm_core"
+                if not core_online
+                else "Esperando emma_pose_player"
+                if not poses_online
+                else current.get("controller_message") or "Esperando STM32"
+            ),
+            "pose_catalog": ARM_POSE_CATALOG,
+            "updated_at": unix_time(),
+        }
+        self.hub.from_thread(self.hub.update_section("arm", values))
+
+        if not controller_service:
+            self.hub.from_thread(
+                self.hub.update_section(
+                    "arm",
+                    {
+                        "controller_connected": False,
+                        "controller_message": "Servicio no disponible",
+                        "ready_reason": "Servicio /ros_robot_controller/connection_status no disponible",
+                        "online": False,
+                        "updated_at": unix_time(),
+                    },
+                )
+            )
+            return
+        if self._arm_connection_future is not None and not self._arm_connection_future.done():
+            return
+        try:
+            from std_srvs.srv import Trigger
+
+            self._arm_connection_future = self._arm_connection_client.call_async(
+                Trigger.Request()
+            )
+            self._arm_connection_future.add_done_callback(self._on_arm_connection)
+        except Exception as exc:
+            self.hub.from_thread(
+                self.hub.update_section(
+                    "arm",
+                    {
+                        "controller_connected": False,
+                        "controller_message": str(exc)[:160],
+                        "ready_reason": str(exc)[:160],
+                        "online": False,
+                        "updated_at": unix_time(),
+                    },
+                )
+            )
+
+    def _on_arm_connection(self, future: Any) -> None:
+        try:
+            response = future.result()
+            connected = bool(response.success)
+            message = str(response.message)
+        except Exception as exc:
+            connected = False
+            message = str(exc)
+        arm = self.hub.state.get("arm", {})
+        self.hub.from_thread(
+            self.hub.update_section(
+                "arm",
+                {
+                    "controller_connected": connected,
+                    "controller_message": message[:160],
+                    "ready_reason": (
+                        "Listo"
+                        if connected and arm.get("core_online", False) and arm.get("poses_online", False)
+                        else message[:160] or "STM32 no confirmo conexion"
+                    ),
+                    "online": bool(
+                        connected
+                        and arm.get("core_online", False)
+                        and arm.get("poses_online", False)
+                    ),
+                    "updated_at": unix_time(),
+                },
+            )
+        )
 
     def _on_base_json(self, msg: Any) -> None:
         self._update_json("base", msg.data)
@@ -2157,7 +2521,7 @@ async def lifespan(_: FastAPI):
         ros_bridge.stop()
 
 
-app = FastAPI(title="EMMA Dashboard", version="1.11.0", lifespan=lifespan)
+app = FastAPI(title="EMMA Dashboard", version="1.13.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount(
     "/vendor",
@@ -2502,12 +2866,39 @@ async def command(body: CommandBody) -> dict[str, Any]:
         allowed = requested in PATROL_COMMANDS or requested in available_routes()
     elif subsystem == "isa":
         allowed = requested in ISA_COMMANDS
+    elif subsystem == "arm":
+        allowed = requested in ARM_DIRECT_COMMANDS or requested in ARM_POSE_CATALOG.get("poses", [])
     else:
         allowed = False
     if not allowed:
         raise HTTPException(status_code=400, detail="Comando no permitido")
-    if not ros_bridge.publish(subsystem, requested):
-        raise HTTPException(status_code=503, detail="Puente ROS 2 no disponible")
+    if subsystem == "arm":
+        arm_process = await service_manager.status("arm")
+        if arm_process["active_state"] != "active":
+            raise HTTPException(status_code=409, detail="El servicio del brazo no esta activo")
+        arm_state = hub.state.get("arm", {})
+        if not arm_state.get("controller_connected"):
+            detail = arm_state.get("controller_message") or "STM32 no conectado"
+            raise HTTPException(status_code=409, detail=f"Controller del brazo no listo: {detail}")
+        if requested not in {"stop"} and not arm_state.get("poses_online"):
+            raise HTTPException(status_code=409, detail="emma_pose_player no esta listo")
+    published = (
+        ros_bridge.publish_arm_command(requested)
+        if subsystem == "arm"
+        else ros_bridge.publish(subsystem, requested)
+    )
+    if not published:
+        detail = (
+            "Los nodos ROS del brazo no estan listos"
+            if subsystem == "arm"
+            else "Puente ROS 2 no disponible"
+        )
+        raise HTTPException(status_code=503, detail=detail)
+    if subsystem == "arm":
+        await hub.update_section(
+            "arm",
+            {"last_command": requested, "updated_at": unix_time()},
+        )
     await hub.add_event(subsystem, f"CMD -> {requested}", "command")
     return {"ok": True, "subsystem": subsystem, "command": requested}
 
@@ -2538,6 +2929,16 @@ async def recording_action(camera: str, recording_command: str) -> dict[str, Any
 @app.get("/api/processes")
 async def processes() -> dict[str, Any]:
     return {"ok": True, "processes": await service_manager.refresh(False)}
+
+
+@app.get("/api/arm/status")
+async def arm_status() -> dict[str, Any]:
+    return {
+        "ok": True,
+        "arm": hub.state.get("arm", {}),
+        "pose_catalog": ARM_POSE_CATALOG,
+        "process": await service_manager.status("arm"),
+    }
 
 
 @app.post("/api/processes/{name}/{action}")

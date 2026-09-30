@@ -1,10 +1,10 @@
-# EMMA Dashboard V1.11
+# EMMA Dashboard V1.13
 
 Panel de operacion que vive en el Jetson Orin y se conecta directamente a
 ROS 2. Incluye controles de Carolina Patrol, terminal local, gestion de Nav2 y
 Patrol mediante systemd, un visor 2D alimentado por `/map`, TF y
 `/patrol/markers`, dos monitores WebRTC para OD Astra y Arm Cam, y control
-interactivo de ISA.
+interactivo de ISA y del brazo.
 
 La vista Evaluation integra el recolector de `C26` para los ensayos Carolina
 3/4, Vision 5/9 e ISA 8. El recolector se inicia bajo demanda y no enciende ni
@@ -46,6 +46,8 @@ systemctl --user start emma-vision.target
 systemctl --user stop emma-vision.target
 systemctl --user start emma-isa
 systemctl --user stop emma-isa
+systemctl --user start emma-arm
+systemctl --user stop emma-arm
 systemctl --user start emma-evaluation
 systemctl --user stop emma-evaluation
 ```
@@ -71,6 +73,11 @@ controla a mano: la ventana Evaluation lo inicia al comenzar o recuperar un
 ensayo, publica las ordenes en `/evaluation/command` y lo detiene despues de
 generar el reporte. Los resultados permanecen en
 `~/.emma/evaluation/runs/`.
+
+`emma-arm` ejecuta el mismo flujo de C3 (`arm_only.sh`). La vista Brazo muestra
+el estado de los nodos, la conexion STM32 y el journal, y publica posiciones y
+ordenes de gripper mediante `/arm/pose_cmd`, `/arm/cmd` y `/arm/joint_cmd`.
+El inicio se rechaza si el controller no aparece en `/dev/ttyACM0`.
 
 ## Grabaciones
 
@@ -101,6 +108,7 @@ journalctl --user -u emma-video -f
 journalctl --user -u emma-od-astra -f
 journalctl --user -u emma-od-arm -f
 journalctl --user -u emma-isa -f
+journalctl --user -u emma-arm -f
 journalctl --user -u emma-evaluation -f
 ```
 

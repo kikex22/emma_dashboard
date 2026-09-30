@@ -1,0 +1,21 @@
+[Unit]
+Description=EMMA Arm (C3 arm_only.sh)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jetson/emma/scripts
+ExecStart=/home/jetson/emma/src/emma_dashboard/scripts/run-arm.sh
+ExecStop=-/usr/bin/tmux kill-session -t Arm_only
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=20
+StandardInput=null
+
+[Install]
+WantedBy=default.target
