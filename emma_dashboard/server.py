@@ -220,6 +220,43 @@ EVALUATION_TYPES = {
 EVALUATION_CLASSES = {"bottle", "can", "cup", "bin"}
 EVALUATION_CAMERAS = {"astra", "arm_cam"}
 
+# EMMA usa pack 3S: 11.1 V nominal, ~12.6 V cargada.
+BATTERY_CELL_COUNT = int(os.environ.get("EMMA_BATTERY_CELLS", "3"))
+BATTERY_EMA_ALPHA = float(os.environ.get("EMMA_BATTERY_EMA_ALPHA", "0.15"))
+BATTERY_CELL_CURVE = (
+    (4.20, 100),
+    (4.15, 95),
+    (4.11, 90),
+    (4.02, 80),
+    (3.95, 70),
+    (3.87, 60),
+    (3.84, 50),
+    (3.80, 40),
+    (3.77, 30),
+    (3.73, 20),
+    (3.69, 10),
+    (3.50, 0),
+)
+
+
+def battery_percent_from_voltage(pack_voltage: float) -> int:
+    if BATTERY_CELL_COUNT <= 0:
+        return 0
+    cell_voltage = pack_voltage / BATTERY_CELL_COUNT
+    if cell_voltage >= BATTERY_CELL_CURVE[0][0]:
+        return 100
+    if cell_voltage <= BATTERY_CELL_CURVE[-1][0]:
+        return 0
+    for (high_v, high_pct), (low_v, low_pct) in zip(
+        BATTERY_CELL_CURVE, BATTERY_CELL_CURVE[1:]
+    ):
+        if low_v <= cell_voltage <= high_v:
+            span = high_v - low_v
+            ratio = 0.0 if span <= 0 else (cell_voltage - low_v) / span
+            pct = low_pct + ratio * (high_pct - low_pct)
+            return max(0, min(100, int(pct + 0.5)))
+    return 0
+
 
 def unix_time() -> float:
     return round(time.time(), 3)
@@ -599,6 +636,15 @@ class DashboardHub:
                 "pose_catalog": ARM_POSE_CATALOG,
                 "updated_at": 0,
             },
+            "battery": {
+                "online": False,
+                "raw_mv": None,
+                "voltage_v": None,
+                "filtered_voltage_v": None,
+                "cell_voltage_v": None,
+                "percent": None,
+                "updated_at": 0,
+            },
             "base": {
                 "owner": "--",
                 "state": "sin datos",
@@ -776,6 +822,7 @@ class RosBridge:
         self._publications: dict[str, dict[str, Any]] = {}
         self._arm_connection_client: Any = None
         self._arm_connection_future: Any = None
+        self._battery_voltage_ema: float | None = None
 
     def _heartbeat(self) -> None:
         with self._diagnostic_lock:
@@ -963,7 +1010,7 @@ class RosBridge:
             from geometry_msgs.msg import PoseWithCovarianceStamped
             from nav_msgs.msg import OccupancyGrid
             from std_msgs.msg import String
-            from std_msgs.msg import Int32MultiArray
+            from std_msgs.msg import Int32MultiArray, UInt16
             from std_srvs.srv import Trigger
             from tf2_ros import Buffer, TransformListener
             from visualization_msgs.msg import MarkerArray
@@ -1019,6 +1066,12 @@ class RosBridge:
                 String,
                 "/ros_robot_controller/connection_status_json",
                 self._on_arm_controller_status,
+                10,
+            )
+            self.node.create_subscription(
+                UInt16,
+                "/ros_robot_controller/battery",
+                self._on_battery,
                 10,
             )
             self.node.create_subscription(
@@ -1345,6 +1398,40 @@ class RosBridge:
                     "last_command": "joint",
                     "last_joint": payload.get("joint"),
                     "last_pulse": payload.get("pulse"),
+                    "updated_at": unix_time(),
+                },
+            )
+        )
+
+    def _on_battery(self, msg: Any) -> None:
+        try:
+            raw_mv = int(msg.data)
+        except (TypeError, ValueError, AttributeError):
+            return
+        if raw_mv <= 0:
+            return
+
+        voltage = raw_mv / 1000.0
+        alpha = max(0.01, min(1.0, BATTERY_EMA_ALPHA))
+        if self._battery_voltage_ema is None:
+            self._battery_voltage_ema = voltage
+        else:
+            self._battery_voltage_ema = (
+                alpha * voltage + (1.0 - alpha) * self._battery_voltage_ema
+            )
+        filtered = self._battery_voltage_ema
+        percent = battery_percent_from_voltage(filtered)
+        self._touch_topic("battery")
+        self.hub.from_thread(
+            self.hub.update_section(
+                "battery",
+                {
+                    "online": True,
+                    "raw_mv": raw_mv,
+                    "voltage_v": round(voltage, 3),
+                    "filtered_voltage_v": round(filtered, 3),
+                    "cell_voltage_v": round(filtered / BATTERY_CELL_COUNT, 3),
+                    "percent": percent,
                     "updated_at": unix_time(),
                 },
             )
@@ -2521,7 +2608,7 @@ async def lifespan(_: FastAPI):
         ros_bridge.stop()
 
 
-app = FastAPI(title="EMMA Dashboard", version="1.13.0", lifespan=lifespan)
+app = FastAPI(title="EMMA Dashboard", version="1.14.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount(
     "/vendor",

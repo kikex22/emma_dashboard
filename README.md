@@ -1,10 +1,12 @@
-# EMMA Dashboard V1.13
+# EMMA Dashboard V1.14
 
 Panel de operacion que vive en el Jetson Orin y se conecta directamente a
 ROS 2. Incluye controles de Carolina Patrol, terminal local, gestion de Nav2 y
 Patrol mediante systemd, un visor 2D alimentado por `/map`, TF y
 `/patrol/markers`, dos monitores WebRTC para OD Astra y Arm Cam, y control
-interactivo de ISA y del brazo.
+interactivo de ISA y del brazo. La barra superior muestra la bateria del robot
+leyendo `/ros_robot_controller/battery` en milivoltios y calculando porcentaje
+para un pack 3S.
 
 La vista Evaluation integra el recolector de `C26` para los ensayos Carolina
 3/4, Vision 5/9 e ISA 8. El recolector se inicia bajo demanda y no enciende ni

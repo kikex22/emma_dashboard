@@ -2,6 +2,7 @@ const dashboardState = {
   connections: {},
   ros_diagnostics: {},
   orin_health: {},
+  battery: {},
   patrol: {},
   isa: {},
   arm: {},
@@ -734,6 +735,7 @@ function renderState() {
   const connections = dashboardState.connections || {};
   const rosDiagnostics = dashboardState.ros_diagnostics || {};
   const orinHealth = dashboardState.orin_health || {};
+  const battery = dashboardState.battery || {};
   const patrol = dashboardState.patrol || {};
   const isa = dashboardState.isa || {};
   const base = dashboardState.base || {};
@@ -750,6 +752,31 @@ function renderState() {
 
   setStateBadge("orin-pill", orinOnline, "ORIN", "ORIN");
   setStateBadge("ros-pill", rosOnline, "ROS 2", "ROS 2");
+  const batteryFresh = Boolean(battery.online) && isFresh(battery, 5);
+  const batteryPercent = Number(battery.percent);
+  const batteryPill = byId("battery-pill");
+  if (batteryPill) {
+    let batteryState = "offline";
+    if (batteryFresh && Number.isFinite(batteryPercent)) {
+      batteryState = batteryPercent < 15 ? "error" : batteryPercent < 30 ? "warn" : "online";
+    }
+    batteryPill.dataset.state = batteryState;
+  }
+  text(
+    "battery-percent",
+    batteryFresh && Number.isFinite(batteryPercent) ? `BAT ${Math.round(batteryPercent)}%` : "BAT --%"
+  );
+  const batteryVoltage = Number(battery.filtered_voltage_v);
+  text(
+    "battery-voltage",
+    batteryFresh && Number.isFinite(batteryVoltage) ? `${batteryVoltage.toFixed(2)} V` : "--.-- V"
+  );
+  if (batteryPill) {
+    const cellVoltage = Number(battery.cell_voltage_v);
+    batteryPill.title = batteryFresh && Number.isFinite(batteryVoltage)
+      ? `Bateria ${batteryVoltage.toFixed(2)} V${Number.isFinite(cellVoltage) ? ` / ${cellVoltage.toFixed(2)} V celda` : ""}`
+      : "Bateria del robot sin datos";
+  }
   setStateBadge("patrol-online", patrolOnline, "ONLINE", "OFFLINE");
   setStateBadge("isa-online", isaOnline, "ONLINE", "OFFLINE");
   setStateBadge("isa-ops-online", isaOnline, "ONLINE", "OFFLINE");
