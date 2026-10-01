@@ -474,6 +474,8 @@ ARM_POSE_GROUPS = {
             ("bin", "bin"),
             ("drop", "drop / abrir"),
             ("side_drop", "side drop"),
+            ("from_afterbin_topre","pre"),
+            ("after_bin", "start"),
         ],
     },
 }

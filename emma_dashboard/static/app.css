@@ -2905,45 +2905,98 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 900px) {
+/* V1.15: tablet/iPad arm layout.
+   iPad landscape can report > 900 CSS px, so the arm view switches to a
+   single scrolling column earlier. Coarse-pointer tablets up to 1400 px use
+   the same layout without forcing desktop/laptop screens to collapse. */
+@media (max-width: 1180px), (max-width: 1400px) and (pointer: coarse) {
   .arm-view.active {
-    overflow: auto;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .arm-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 14px;
+    min-height: 64px;
+    padding: 8px 18px;
+  }
+
+  .arm-toolbar .toolbar-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
   }
 
   .arm-workspace {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto auto minmax(320px, 1fr);
-    overflow: visible;
+    grid-template-rows: none;
+    grid-auto-rows: auto;
+    align-content: start;
+    min-height: 0;
+    gap: 14px;
+    padding: 16px 18px calc(34px + env(safe-area-inset-bottom));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
+  .arm-status-panel,
+  .arm-quick-panel,
   .arm-objects-panel,
   .arm-legacy-panel,
   .arm-journal-panel {
-    grid-column: auto;
+    grid-column: 1;
     grid-row: auto;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .arm-object-grid {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .arm-legacy-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .arm-object-title {
+    flex-wrap: wrap;
+  }
+
+  .arm-pose-button strong,
+  .arm-pose-button span {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .arm-journal-panel {
+    min-height: 240px;
+    height: clamp(240px, 31dvh, 340px);
+  }
+
+  #arm-logs-content {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 900px) {
+  .arm-object-grid,
   .arm-legacy-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 620px) {
-  .arm-view.active {
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-
   .arm-toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
     padding: 10px 12px;
   }
 
   .arm-toolbar .toolbar-actions {
-    grid-column: 1 / -1;
     justify-content: stretch;
   }
 
@@ -2953,12 +3006,18 @@ button:disabled {
 
   .arm-workspace {
     gap: 10px;
-    padding: 10px;
+    padding: 10px 10px calc(26px + env(safe-area-inset-bottom));
   }
 
   .arm-telemetry,
   .arm-command-grid,
+  .arm-object-grid,
   .arm-legacy-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .arm-journal-panel {
+    min-height: 220px;
+    height: 260px;
   }
 }

@@ -1,4 +1,4 @@
-# EMMA Dashboard V1.14
+# EMMA Dashboard V1.15
 
 Panel de operacion que vive en el Jetson Orin y se conecta directamente a
 ROS 2. Incluye controles de Carolina Patrol, terminal local, gestion de Nav2 y
@@ -117,3 +117,6 @@ journalctl --user -u emma-evaluation -f
 Variables opcionales: `EMMA_DASHBOARD_PORT`, `EMMA_NAV_USE_RVIZ` y
 `EMMA_NAV_ENABLE_LIDAR`. Sus valores predeterminados son `8765`, `false` y
 `false`.
+
+
+V1.15 mejora la vista Brazo para iPad/tablets sin cambiar la logica ROS.
