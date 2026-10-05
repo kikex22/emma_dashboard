@@ -10,6 +10,7 @@ chmod 755 \
   "$PROJECT_DIR/scripts/run-nav.sh" \
   "$PROJECT_DIR/scripts/run-patrol.sh" \
   "$PROJECT_DIR/scripts/run-video-gateway.sh" \
+  "$PROJECT_DIR/scripts/run-cams-sender.sh" \
   "$PROJECT_DIR/scripts/run-astra-depth.sh" \
   "$PROJECT_DIR/scripts/run-od-astra.sh" \
   "$PROJECT_DIR/scripts/run-od-arm.sh" \
@@ -21,6 +22,7 @@ install -m 644 "$PROJECT_DIR/systemd/emma-dashboard.service" "$UNIT_DIR/"
 install -m 644 "$PROJECT_DIR/systemd/emma-nav.service" "$UNIT_DIR/"
 install -m 644 "$PROJECT_DIR/systemd/emma-patrol.service" "$UNIT_DIR/"
 install -m 644 "$PROJECT_DIR/systemd/emma-video.service" "$UNIT_DIR/"
+install -m 644 "$PROJECT_DIR/systemd/emma-cams-sender.service" "$UNIT_DIR/"
 install -m 644 "$PROJECT_DIR/systemd/emma-astra-depth.service" "$UNIT_DIR/"
 install -m 644 "$PROJECT_DIR/systemd/emma-od-astra.service" "$UNIT_DIR/"
 install -m 644 "$PROJECT_DIR/systemd/emma-od-arm.service" "$UNIT_DIR/"

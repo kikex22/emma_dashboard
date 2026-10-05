@@ -1,6 +1,8 @@
-# EMMA Dashboard V1.15
+# EMMA Dashboard V1.16
 
 Panel de operacion que vive en el Jetson Orin y se conecta directamente a
+ROS 2. V1.16 corrige el layout responsive del brazo en navegador de escritorio y tablet,
+con filas explicitas, scroll estable y paneles Legacy/Journal sin superposicion.
 ROS 2. Incluye controles de Carolina Patrol, terminal local, gestion de Nav2 y
 Patrol mediante systemd, un visor 2D alimentado por `/map`, TF y
 `/patrol/markers`, dos monitores WebRTC para OD Astra y Arm Cam, y control
@@ -57,10 +59,11 @@ systemctl --user stop emma-evaluation
 Iniciar Patrol levanta Nav2 si no esta activo. Detener Nav2 tambien detiene
 Patrol. Ninguna unidad queda habilitada para iniciar con el Orin.
 
-Vision inicia el gateway WebRTC, Astra Depth y los detectores disponibles. Si
-Arm Cam no esta conectada, su unidad permanece inactiva y Astra sigue operando.
-Los feeds anotados salen localmente por RTP en `5710` y `5711`; MediaMTX los
-expone al navegador en `8889`. El modo dashboard no modifica las variables
+Vision inicia el gateway WebRTC, el sender local de Arm Cam, Astra Depth y los
+detectores disponibles. Astra entrega `astra_raw` desde el propio `od_node` en
+`5712` y `astra` con overlay en `5710`; la Arm Cam entrega `arm_raw` en `5601`.
+El feed anotado de Arm Cam sigue disponible en `5711` cuando se use el detector
+correspondiente. MediaMTX expone todo al navegador en `8889`. El modo dashboard no modifica las variables
 `EMMA_VIDEO_HOST`, `EMMA_OD_VIDEO_PORT=5610` ni
 `EMMA_ARM_VIDEO_PORT=5611`, que siguen reservadas para PC/laptop.
 

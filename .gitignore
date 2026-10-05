@@ -1,0 +1,7 @@
+.venv/
+.venv.bad_x86_*/
+node_modules/
+__pycache__/
+*.pyc
+*.pc_backup
+*.backup

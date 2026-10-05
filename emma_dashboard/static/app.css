@@ -1547,6 +1547,16 @@ button:disabled {
   gap: 5px;
 }
 
+.feed-select {
+  width: 68px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--cyan);
+}
+
 .camera-actions .icon-button {
   width: 32px;
   height: 32px;
@@ -2713,12 +2723,19 @@ button:disabled {
 
 .arm-workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 0.72fr) minmax(460px, 1.28fr);
-  grid-template-rows: auto auto minmax(260px, 1fr);
+  grid-template-columns: minmax(330px, 0.72fr) minmax(560px, 1.28fr);
+  /* Explicit desktop rows prevent Legacy/Journal from sharing or stretching an
+     implicit row when the browser viewport is short. */
+  grid-template-rows: auto auto auto auto;
+  align-content: start;
   gap: 16px;
+  width: min(1700px, 100%);
   min-height: 0;
-  padding: 20px 24px 24px;
-  overflow: auto;
+  margin: 0 auto;
+  padding: 20px 24px 32px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .arm-status-panel,
@@ -2727,6 +2744,18 @@ button:disabled {
 .arm-legacy-panel,
 .arm-journal-panel {
   min-width: 0;
+  max-width: 100%;
+  align-self: start;
+}
+
+.arm-status-panel {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.arm-quick-panel {
+  grid-column: 1;
+  grid-row: 2;
 }
 
 .arm-telemetry {
@@ -2789,6 +2818,7 @@ button:disabled {
 .arm-objects-panel {
   grid-column: 2;
   grid-row: 1 / span 2;
+  align-self: stretch;
 }
 
 .arm-object-grid {
@@ -2812,7 +2842,8 @@ button:disabled {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   min-width: 0;
 }
 
@@ -2836,7 +2867,7 @@ button:disabled {
 }
 
 .arm-legacy-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   padding: 18px;
 }
 
@@ -2866,9 +2897,10 @@ button:disabled {
 .arm-pose-button strong,
 .arm-pose-button span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .arm-pose-button strong {
@@ -2882,13 +2914,17 @@ button:disabled {
 
 .arm-legacy-panel {
   grid-column: 1 / -1;
+  grid-row: 3;
 }
 
 .arm-journal-panel {
   grid-column: 1 / -1;
+  grid-row: 4;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
   min-height: 260px;
+  height: clamp(260px, 34dvh, 360px);
   overflow: hidden;
 }
 
@@ -2903,6 +2939,34 @@ button:disabled {
   font: 13px/1.5 var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* V1.16: compact desktop browser mode for shorter laptop displays. */
+@media (min-width: 1181px) and (max-height: 820px) {
+  .arm-workspace {
+    gap: 12px;
+    padding: 12px 18px 24px;
+  }
+
+  .arm-command-grid,
+  .arm-object-grid,
+  .arm-legacy-grid {
+    padding: 12px;
+  }
+
+  .arm-command-grid .command-button {
+    min-height: 44px;
+  }
+
+  .arm-pose-button {
+    min-height: 52px;
+    padding: 9px 10px;
+  }
+
+  .arm-journal-panel {
+    min-height: 220px;
+    height: 260px;
+  }
 }
 
 /* V1.15: tablet/iPad arm layout.

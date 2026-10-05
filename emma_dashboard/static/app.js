@@ -292,9 +292,37 @@ function renderVisionService(id, status = {}) {
   if (value) value.textContent = String(status.active_state || "unknown").toUpperCase();
 }
 
-function visionPlayerUrl(camera) {
+function visionPlayerUrl(pathName) {
   const port = Number(dashboardState.vision?.webrtc_port) || 8889;
-  return `${location.protocol}//${location.hostname}:${port}/${camera}/?autoplay=true&muted=true&controls=false&playsInline=true`;
+  return `${location.protocol}//${location.hostname}:${port}/${pathName}/?autoplay=true&muted=true&controls=false&playsInline=true`;
+}
+
+function astraFeedMode() {
+  const select = byId("astra-feed-mode");
+  if (select?.value === "raw") return "raw";
+  if (select?.value === "bin") return "bin";
+  return "bbox";
+}
+
+function visionStreamPath(viewName, camera) {
+  if (viewName === "vision" && camera === "astra") {
+    const mode = astraFeedMode();
+    if (mode === "raw") return "astra_raw";
+    if (mode === "bin") return "astra_bin";
+    return "astra";
+  }
+  if (viewName === "vision" && camera === "arm") return "arm_raw";
+  return camera;
+}
+
+function streamReady(pathName) {
+  const vision = dashboardState.vision || {};
+  if (pathName === "astra_raw") return Boolean(vision.astra_raw_stream_ready);
+  if (pathName === "astra") return Boolean(vision.astra_bbox_stream_ready);
+  if (pathName === "astra_bin") return Boolean(vision.astra_bin_stream_ready);
+  if (pathName === "arm_raw") return Boolean(vision.arm_raw_stream_ready);
+  if (pathName === "arm") return Boolean(vision.arm_det_stream_ready);
+  return false;
 }
 
 function receiverCameraKey(camera) {
@@ -344,14 +372,16 @@ async function publishVideoReceiverStatus() {
   }
 }
 
-function syncVisionPlayer(camera, ready) {
+function syncVisionPlayer(camera) {
   ["vision", "isa"].forEach((viewName) => {
     const frame = byId(`${viewName}-${camera}-frame`);
     const empty = byId(`${viewName}-${camera}-empty`);
     const view = byId(`view-${viewName}`);
     if (!frame || !empty || !view) return;
+    const pathName = visionStreamPath(viewName, camera);
+    const ready = streamReady(pathName);
     const shouldPlay = Boolean(ready && view.classList.contains("active"));
-    const desired = shouldPlay ? visionPlayerUrl(camera) : "";
+    const desired = shouldPlay ? visionPlayerUrl(pathName) : "";
     if (frame.dataset.streamUrl !== desired) {
       frame.dataset.streamUrl = desired;
       if (desired) frame.src = desired;
@@ -412,6 +442,9 @@ function renderVision() {
   const visionActive = processes.vision?.active_state === "active";
   const astraReady = Boolean(vision.astra_stream_ready);
   const armReady = Boolean(vision.arm_stream_ready);
+  const astraMode = astraFeedMode();
+  const astraSelectedReady = streamReady(visionStreamPath("vision", "astra"));
+  const armSelectedReady = Boolean(vision.arm_raw_stream_ready);
   const gatewayOnline = Boolean(vision.gateway_online);
 
   setStateBadge(
@@ -433,7 +466,7 @@ function renderVision() {
 
   text("astra-camera-state", vision.astra_camera_connected ? "CAMARA CONECTADA" : "CAMARA AUSENTE");
   text("arm-camera-state", vision.arm_camera_connected ? "CAMARA CONECTADA" : "CAMARA AUSENTE");
-  text("astra-stream", astraReady ? "ONLINE" : "OFFLINE");
+  text("astra-stream", astraSelectedReady ? astraMode.toUpperCase() : "OFFLINE");
   text("astra-fps", isFresh(astra, 4) ? fixed(astra.annotated_fps, 1) : "--");
   text("astra-inference", isFresh(astra, 4) ? fixed(astra.gpu_inference_mean_ms, 1, " ms") : "--");
   text("astra-detections", isFresh(astra, 3) ? astra.detection_count : "--");
@@ -441,7 +474,7 @@ function renderVision() {
   text("astra-target", astra.target_class || firstDetection?.class_name || "--");
   text("astra-distance", fixed(astra.target_distance_m, 2, " m"));
 
-  text("arm-stream", armReady ? "ONLINE" : "OFFLINE");
+  text("arm-stream", armSelectedReady ? "ELGATO RAW" : "OFFLINE");
   text("arm-fps", isFresh(arm, 4) ? fixed(arm.annotated_fps, 1) : "--");
   text("arm-latency", isFresh(arm, 4) ? fixed(arm.processing_latency_ms, 1, " ms") : "--");
   const alignment = arm.alignment_command && arm.alignment_command !== "--"
@@ -461,10 +494,11 @@ function renderVision() {
   );
 
   renderVisionService("vision-service-video", processes.video);
+  renderVisionService("vision-service-cams", processes.cams_sender);
   renderVisionService("vision-service-depth", processes.depth);
   renderVisionService("vision-service-astra", processes.od_astra);
   renderVisionService("vision-service-arm", processes.od_arm);
-  const anyVisionServiceActive = ["vision", "video", "depth", "od_astra", "od_arm"]
+  const anyVisionServiceActive = ["vision", "video", "cams_sender", "depth", "od_astra", "od_arm"]
     .some((name) => ["active", "activating", "reloading"].includes(processes[name]?.active_state));
   const visionControlStatus = {
     ...processes.vision,
@@ -482,8 +516,8 @@ function renderVision() {
   ].some(([state, process]) => process?.active_state === "active" && !state.recording);
   byId("record-all").disabled = !recordable;
   byId("save-all-recordings").disabled = !activeRecordings;
-  syncVisionPlayer("astra", astraReady);
-  syncVisionPlayer("arm", armReady);
+  syncVisionPlayer("astra");
+  syncVisionPlayer("arm");
 }
 
 function syncSelect(id, value) {
@@ -938,7 +972,7 @@ function renderState() {
   renderEvaluation();
 
   const mapAvailable = Boolean(map.available && map.width && map.height);
-  const poseFresh = Boolean(robotPose.available) && isFresh(robotPose, 2.5);
+  const poseFresh = Boolean(robotPose.available) && isFresh(robotPose, 5);
   setStateBadge("map-status", mapAvailable, "MAPA", "SIN MAPA", !poseFresh && mapAvailable);
   text("map-frame", mapAvailable ? `FRAME ${map.frame_id || "map"}` : "FRAME --");
   text(
@@ -1154,7 +1188,7 @@ function drawRoute(context) {
 
 function drawRobot(context) {
   const pose = dashboardState.robot_pose || {};
-  if (!pose.available || !isFresh(pose, 2.5)) return;
+  if (!pose.available || !isFresh(pose, 5)) return;
   const screen = worldToCanvas(pose.x, pose.y);
   const angle = -(Number(pose.yaw) - Number(dashboardState.map?.origin?.yaw || 0));
 
@@ -1565,8 +1599,19 @@ function switchView(viewName) {
   if (viewName === "arm") loadArmLogs();
   if (viewName === "vision" || viewName === "isa") window.setTimeout(renderVision, 40);
   else {
-    syncVisionPlayer("astra", false);
-    syncVisionPlayer("arm", false);
+    ["vision", "isa"].forEach((viewName) => {
+      ["astra", "arm"].forEach((camera) => {
+        const frame = byId(`${viewName}-${camera}-frame`);
+        const empty = byId(`${viewName}-${camera}-empty`);
+        if (frame) {
+          frame.dataset.streamUrl = "";
+          frame.removeAttribute("src");
+          frame.hidden = true;
+        }
+        if (empty) empty.hidden = false;
+        noteVisionFrameState(camera, "clear");
+      });
+    });
   }
 }
 
@@ -2023,6 +2068,11 @@ document.querySelectorAll(".filter-button").forEach((button) => {
 byId("clear-events").addEventListener("click", () => {
   events = [];
   renderEvents();
+});
+
+byId("astra-feed-mode")?.addEventListener("change", () => {
+  syncVisionPlayer("astra");
+  renderVision();
 });
 
 byId("terminal-reconnect").addEventListener("click", connectTerminal);

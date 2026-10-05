@@ -76,7 +76,7 @@ VISION_DEVICES = {
         "/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._USB_2.0_Camera_SN0001-video-index0"
     ),
     "arm": Path(
-        "/dev/v4l/by-id/usb-icSpring_icspring_camera-video-index0"
+        "/dev/v4l/by-id/usb-Jieli_Technology_USB_PHY_2.0-video-index0"
     ),
 }
 
@@ -96,6 +96,10 @@ MANAGED_SERVICES = {
     "video": {
         "unit": "emma-video.service",
         "label": "Video WebRTC",
+    },
+    "cams_sender": {
+        "unit": "emma-cams-sender.service",
+        "label": "Cams Sender",
     },
     "depth": {
         "unit": "emma-astra-depth.service",
@@ -681,7 +685,12 @@ class DashboardHub:
                 "astra_camera_connected": False,
                 "arm_camera_connected": False,
                 "astra_stream_ready": False,
+                "astra_raw_stream_ready": False,
+                "astra_bbox_stream_ready": False,
+                "astra_bin_stream_ready": False,
                 "arm_stream_ready": False,
+                "arm_raw_stream_ready": False,
+                "arm_det_stream_ready": False,
                 "webrtc_port": 8889,
                 "updated_at": 0,
             },
@@ -812,6 +821,7 @@ class RosBridge:
         self._map_revision = 0
         self._last_nav_ready: bool | None = None
         self._pose_available = False
+        self._pose_miss_count = 0
         self._route_file_signature: tuple[str, int] | None = None
         self._last_patrol_status = ""
         self._last_rosout: dict[str, float] = {}
@@ -903,6 +913,52 @@ class RosBridge:
                 }
         with self._diagnostic_lock:
             self._tf_links = results
+
+    def _set_robot_pose_available(self, available: bool) -> None:
+        if self._pose_available == available:
+            return
+        self._pose_available = available
+        if not available:
+            self.hub.from_thread(
+                self.hub.update_section(
+                    "robot_pose",
+                    {
+                        "available": False,
+                        "updated_at": unix_time(),
+                    },
+                )
+            )
+
+    def _publish_robot_pose_from_transform(self, transform: Any) -> None:
+        translation = transform.transform.translation
+        rotation = transform.transform.rotation
+        stamp = transform.header.stamp
+        stamp_seconds = float(stamp.sec) + float(stamp.nanosec) / 1_000_000_000
+        age_seconds = 0.0
+        if stamp_seconds > 0.0 and self.node is not None:
+            now_seconds = self.node.get_clock().now().nanoseconds / 1_000_000_000
+            age_seconds = max(0.0, now_seconds - stamp_seconds)
+        if age_seconds > 5.0:
+            self._set_robot_pose_available(False)
+            return
+
+        self._pose_miss_count = 0
+        self._pose_available = True
+        self._touch_topic("tf_pose")
+        self.hub.from_thread(
+            self.hub.update_section(
+                "robot_pose",
+                {
+                    "available": True,
+                    "frame_id": "map",
+                    "x": round(float(translation.x), 4),
+                    "y": round(float(translation.y), 4),
+                    "yaw": round(quaternion_yaw(rotation), 5),
+                    "tf_age_sec": round(age_seconds, 3),
+                    "updated_at": unix_time(),
+                },
+            )
+        )
 
     def diagnostic_snapshot(self) -> dict[str, Any]:
         now = unix_time()
@@ -1878,43 +1934,12 @@ class RosBridge:
                 self._time_class(),
             )
         except Exception:
+            self._pose_miss_count += 1
+            if self._pose_miss_count >= 5:
+                self._set_robot_pose_available(False)
             return
 
-        translation = transform.transform.translation
-        rotation = transform.transform.rotation
-        stamp = transform.header.stamp
-        stamp_seconds = float(stamp.sec) + float(stamp.nanosec) / 1_000_000_000
-        if stamp_seconds > 0.0:
-            now_seconds = self.node.get_clock().now().nanoseconds / 1_000_000_000
-            if now_seconds - stamp_seconds > 2.5:
-                if self._pose_available:
-                    self._pose_available = False
-                    self.hub.from_thread(
-                        self.hub.update_section(
-                            "robot_pose",
-                            {
-                                "available": False,
-                                "updated_at": unix_time(),
-                            },
-                        )
-                    )
-                return
-
-        self._pose_available = True
-        self._touch_topic("tf_pose")
-        self.hub.from_thread(
-            self.hub.update_section(
-                "robot_pose",
-                {
-                    "available": True,
-                    "frame_id": "map",
-                    "x": round(float(translation.x), 4),
-                    "y": round(float(translation.y), 4),
-                    "yaw": round(quaternion_yaw(rotation), 5),
-                    "updated_at": unix_time(),
-                },
-            )
-        )
+        self._publish_robot_pose_from_transform(transform)
 
     def _update_navigation_health(self) -> None:
         if self.node is None:
@@ -2266,7 +2291,7 @@ def probe_mediamtx() -> dict[str, Any]:
         if not isinstance(item, dict):
             continue
         name = str(item.get("name", ""))
-        if name in {"astra", "arm"}:
+        if name in {"astra", "astra_bin", "astra_raw", "arm", "arm_raw"}:
             paths[name] = {
                 "ready": bool(item.get("ready", False)),
                 "bytes_received": int(item.get("bytesReceived", 0) or 0),
@@ -2283,18 +2308,41 @@ class VisionMonitor:
     async def refresh(self, announce: bool = True) -> dict[str, Any]:
         media = await asyncio.to_thread(probe_mediamtx)
         paths = media.get("paths", {})
-        astra_path = paths.get("astra", {})
-        arm_path = paths.get("arm", {})
+        astra_bbox_path = paths.get("astra", {})
+        astra_bin_path = paths.get("astra_bin", {})
+        astra_raw_path = paths.get("astra_raw", {})
+        arm_det_path = paths.get("arm", {})
+        arm_raw_path = paths.get("arm_raw", {})
+        astra_raw_ready = bool(astra_raw_path.get("ready", False))
+        astra_bbox_ready = bool(astra_bbox_path.get("ready", False))
+        astra_bin_ready = bool(astra_bin_path.get("ready", False))
+        arm_raw_ready = bool(arm_raw_path.get("ready", False))
+        arm_det_ready = bool(arm_det_path.get("ready", False))
         values = {
             "gateway_online": bool(media.get("online", False)),
             "astra_camera_connected": VISION_DEVICES["astra"].exists(),
             "arm_camera_connected": VISION_DEVICES["arm"].exists(),
-            "astra_stream_ready": bool(astra_path.get("ready", False)),
-            "arm_stream_ready": bool(arm_path.get("ready", False)),
-            "astra_bytes_received": int(astra_path.get("bytes_received", 0)),
-            "arm_bytes_received": int(arm_path.get("bytes_received", 0)),
-            "astra_readers": int(astra_path.get("readers", 0)),
-            "arm_readers": int(arm_path.get("readers", 0)),
+            "astra_stream_ready": astra_raw_ready or astra_bbox_ready or astra_bin_ready,
+            "astra_raw_stream_ready": astra_raw_ready,
+            "astra_bbox_stream_ready": astra_bbox_ready,
+            "astra_bin_stream_ready": astra_bin_ready,
+            "arm_stream_ready": arm_raw_ready or arm_det_ready,
+            "arm_raw_stream_ready": arm_raw_ready,
+            "arm_det_stream_ready": arm_det_ready,
+            "astra_bytes_received": int(
+                astra_bbox_path.get("bytes_received", 0)
+                or astra_raw_path.get("bytes_received", 0)
+                or astra_bin_path.get("bytes_received", 0)
+            ),
+            "arm_bytes_received": int(
+                arm_raw_path.get("bytes_received", 0) or arm_det_path.get("bytes_received", 0)
+            ),
+            "astra_readers": (
+                int(astra_raw_path.get("readers", 0))
+                + int(astra_bbox_path.get("readers", 0))
+                + int(astra_bin_path.get("readers", 0))
+            ),
+            "arm_readers": int(arm_raw_path.get("readers", 0)) + int(arm_det_path.get("readers", 0)),
             "webrtc_port": 8889,
             "updated_at": unix_time(),
         }
@@ -2610,7 +2658,7 @@ async def lifespan(_: FastAPI):
         ros_bridge.stop()
 
 
-app = FastAPI(title="EMMA Dashboard", version="1.14.0", lifespan=lifespan)
+app = FastAPI(title="EMMA Dashboard", version="1.16.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount(
     "/vendor",
@@ -2701,7 +2749,12 @@ def evaluation_warnings(trial_type: str, cameras: list[str]) -> list[str]:
 
 @app.get("/")
 async def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(
+        STATIC_DIR / "index.html",
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+        },
+    )
 
 
 @app.get("/api/health")

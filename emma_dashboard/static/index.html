@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <title>EMMA Control</title>
     <link rel="stylesheet" href="/vendor/@xterm/xterm/css/xterm.css">
-    <link rel="stylesheet" href="/static/app.css?v=1.15">
+    <link rel="stylesheet" href="/static/app.css?v=1.18">
   </head>
   <body>
     <div class="app-shell">
@@ -15,7 +15,7 @@
           <span class="brand-mark" aria-hidden="true"></span>
           <div>
             <strong>EMMA CONTROL</strong>
-            <span>ORIN / OPERATIONS V1.15</span>
+            <span>ORIN / OPERATIONS V1.16</span>
           </div>
         </div>
 
@@ -612,9 +612,14 @@
                 <header class="camera-header">
                   <div class="camera-identity">
                     <span class="status-dot"></span>
-                    <div><strong>ASTRA RGB-D</strong><span id="astra-camera-state">CAMARA --</span></div>
+                  <div><strong>ASTRA RGB-D</strong><span id="astra-camera-state">CAMARA --</span></div>
                   </div>
                   <div class="camera-actions">
+                    <select class="feed-select" id="astra-feed-mode" aria-label="Seleccionar feed Astra" title="Feed Astra">
+                      <option value="bbox" selected>BBOX</option>
+                      <option value="bin">BIN</option>
+                      <option value="raw">RAW</option>
+                    </select>
                     <button class="icon-button positive" data-process="od_astra" data-process-action="start" title="Iniciar OD Astra" aria-label="Iniciar OD Astra"><i data-lucide="play"></i></button>
                     <button class="icon-button danger" data-process="od_astra" data-process-action="stop" title="Detener OD Astra" aria-label="Detener OD Astra"><i data-lucide="square"></i></button>
                     <button class="icon-button" data-process="od_astra" data-process-action="restart" title="Reiniciar OD Astra" aria-label="Reiniciar OD Astra"><i data-lucide="refresh-cw"></i></button>
@@ -655,7 +660,7 @@
                 <header class="camera-header">
                   <div class="camera-identity">
                     <span class="status-dot"></span>
-                    <div><strong>ARM CAM</strong><span id="arm-camera-state">CAMARA --</span></div>
+                    <div><strong>ARM CAM</strong><span id="arm-camera-state">ELGATO --</span></div>
                   </div>
                   <div class="camera-actions">
                     <button class="icon-button positive" data-process="od_arm" data-process-action="start" title="Iniciar Arm Cam" aria-label="Iniciar Arm Cam"><i data-lucide="play"></i></button>
@@ -665,7 +670,7 @@
                   </div>
                 </header>
                 <div class="camera-stage camera-stage-arm">
-                  <iframe id="vision-arm-frame" title="Video anotado Arm Cam" allow="autoplay; fullscreen" loading="lazy"></iframe>
+                  <iframe id="vision-arm-frame" title="Video Arm Cam" allow="autoplay; fullscreen" loading="lazy"></iframe>
                   <div class="camera-empty" id="vision-arm-empty">
                     <i data-lucide="video-off"></i><strong>STREAM OFFLINE</strong><span id="vision-arm-reason">Camara no conectada</span>
                   </div>
@@ -697,6 +702,7 @@
 
             <div class="vision-service-strip">
               <div id="vision-service-video" data-state="offline"><span class="status-dot"></span><span>WEBRTC</span><strong>OFFLINE</strong></div>
+              <div id="vision-service-cams" data-state="offline"><span class="status-dot"></span><span>CAMS</span><strong>OFFLINE</strong></div>
               <div id="vision-service-depth" data-state="offline"><span class="status-dot"></span><span>DEPTH</span><strong>OFFLINE</strong></div>
               <div id="vision-service-astra" data-state="offline"><span class="status-dot"></span><span>OD ASTRA</span><strong>OFFLINE</strong></div>
               <div id="vision-service-arm" data-state="offline"><span class="status-dot"></span><span>OD ARM</span><strong>OFFLINE</strong></div>
@@ -877,6 +883,6 @@
     <script src="/vendor/lucide/dist/umd/lucide.js"></script>
     <script src="/vendor/@xterm/xterm/lib/xterm.js"></script>
     <script src="/vendor/@xterm/addon-fit/lib/addon-fit.js"></script>
-    <script src="/static/app.js?v=1.15"></script>
+    <script src="/static/app.js?v=1.18"></script>
   </body>
 </html>
