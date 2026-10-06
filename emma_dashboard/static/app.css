@@ -15,6 +15,7 @@
   --red: #ff5964;
   --blue: #5b8cff;
   --header-height: 106px;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 15px;
   letter-spacing: 0;
@@ -2967,6 +2968,150 @@ button:disabled {
     min-height: 220px;
     height: 260px;
   }
+}
+
+.manual-view.active {
+  display: grid;
+  grid-template-rows: 64px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.manual-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.manual-toolbar .vision-identity { margin-right: auto; }
+
+.manual-workspace {
+  display: grid;
+  grid-template-columns: minmax(340px, 1.1fr) minmax(320px, 0.9fr);
+  width: min(1320px, 100%);
+  min-height: 0;
+  margin: 0 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.manual-drive,
+.manual-arm {
+  min-width: 0;
+  padding: 20px 26px 34px;
+}
+
+.manual-drive { border-right: 1px solid var(--line); }
+
+.manual-state-line,
+.manual-arm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.manual-state-line {
+  font: 12px/1.4 var(--font-mono);
+  color: var(--muted);
+}
+
+.manual-state-line strong { color: var(--cyan); }
+
+.manual-pad {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: min(100%, 340px);
+  aspect-ratio: 1;
+  margin: 16px auto 20px;
+}
+
+.manual-pad button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.manual-pad button:disabled { opacity: 0.36; }
+.manual-pad button:not(:disabled):active,
+.manual-pad button.is-pressed { border-color: var(--cyan); background: #123a42; }
+.manual-pad svg { width: 32px; height: 32px; }
+.manual-direction.forward { grid-column: 2; grid-row: 1; }
+.manual-direction.left { grid-column: 1; grid-row: 2; }
+.manual-direction.right { grid-column: 3; grid-row: 2; }
+.manual-direction.backward { grid-column: 2; grid-row: 3; }
+.manual-stop {
+  grid-column: 2;
+  grid-row: 2;
+  flex-direction: column;
+  border-color: #873139 !important;
+  background: #35171c !important;
+  color: #ff9fa5 !important;
+  font: 700 13px/1 var(--font-mono);
+}
+
+.manual-stop svg { width: 22px; height: 22px; }
+
+.manual-speed-controls {
+  display: grid;
+  gap: 8px;
+  width: min(100%, 440px);
+  margin: 0 auto;
+}
+
+.manual-speed-controls label { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.manual-speed-controls output { color: var(--cyan); font-family: var(--font-mono); }
+.manual-speed-controls input { width: 100%; min-height: 34px; accent-color: var(--cyan); }
+.manual-readiness { margin-top: 12px; color: var(--muted); font: 12px/1.4 var(--font-mono); text-align: center; }
+
+.manual-arm-header { margin-bottom: 18px; }
+.manual-arm-header h2 { margin: 4px 0 0; font-size: 18px; }
+.manual-arm-state {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font: 12px/1.3 var(--font-mono);
+}
+.manual-arm-state span { color: var(--muted); }
+.manual-arm-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+.manual-arm-actions .command-button { min-height: 58px; }
+
+@media (max-width: 800px) {
+  .manual-workspace { grid-template-columns: minmax(0, 1fr); }
+  .manual-drive { border-right: 0; border-bottom: 1px solid var(--line); }
+}
+
+@media (max-width: 520px) {
+  :root { --header-height: 140px; }
+  .topbar {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 28px 32px 42px;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+  .brand-block { grid-column: 1; grid-row: 1; }
+  .top-status { grid-column: 1; grid-row: 2; justify-content: flex-end; }
+  .view-tabs { grid-column: 1; grid-row: 3; }
+  .manual-toolbar { flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+  .manual-view.active { grid-template-rows: auto minmax(0, 1fr); }
+  .manual-toolbar .toolbar-actions { width: 100%; justify-content: flex-end; }
+  .manual-drive, .manual-arm { padding: 16px 14px 28px; }
+  .manual-pad { width: min(100%, 302px); }
 }
 
 /* V1.15: tablet/iPad arm layout.

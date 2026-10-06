@@ -29,6 +29,13 @@ let terminalSocket = null;
 let terminalStarted = false;
 let terminalReconnectTimer = null;
 let terminalFallbackActive = false;
+let manualSocket = null;
+let manualReconnectTimer = null;
+let manualDirection = null;
+let manualPointerId = null;
+let manualPulseTimer = null;
+let manualRetryAt = 0;
+let manualSocketError = "";
 const terminalDecoder = new TextDecoder();
 let confirmResolver = null;
 let routeSelectionDirty = false;
@@ -174,7 +181,7 @@ function renderProcess(name, status = {}) {
 function renderArm() {
   const arm = dashboardState.arm || {};
   const process = dashboardState.processes?.arm || {};
-  const active = process.active_state === "active";
+  const active = process.active_state === "active" || dashboardState.processes?.manual?.active_state === "active";
   const armFresh = isFresh(arm, 5);
   const online = active && armFresh && Boolean(arm.online);
   const motionReady = active && armFresh && Boolean(arm.controller_connected) && Boolean(arm.poses_online);
@@ -186,7 +193,8 @@ function renderArm() {
     active ? "INICIANDO" : "OFFLINE",
     active && !online
   );
-  text("arm-service-state", String(process.active_state || "unknown").toUpperCase());
+  text("arm-service-state", dashboardState.processes?.manual?.active_state === "active"
+    ? "MANUAL" : String(process.active_state || "unknown").toUpperCase());
   text(
     "arm-controller-state",
     arm.controller_connected
@@ -213,13 +221,126 @@ function renderArm() {
   renderVisionProcessControls("arm", process, true);
 }
 
+let manualAuthorized = false;
+
+function manualReady() {
+  const arm = dashboardState.arm || {};
+  const base = dashboardState.base || {};
+  return manualAuthorized
+    && manualSocket?.readyState === WebSocket.OPEN
+    && dashboardState.processes?.manual?.active_state === "active"
+    && base.owner === "manual"
+    && !base.estop
+    && isFresh(base, 2.5)
+    && Boolean(arm.controller_connected)
+    && isFresh(arm, 5);
+}
+
+function manualSend(direction) {
+  if (manualSocket?.readyState !== WebSocket.OPEN) return;
+  manualSocket.send(JSON.stringify({
+    direction,
+    linear: Number(byId("manual-linear").value),
+    angular: Number(byId("manual-angular").value),
+  }));
+}
+
+function stopManualMotion() {
+  window.clearInterval(manualPulseTimer);
+  manualPulseTimer = null;
+  manualDirection = null;
+  manualPointerId = null;
+  document.querySelectorAll(".manual-direction").forEach((button) => button.classList.remove("is-pressed"));
+  manualSend("stop");
+}
+
+function startManualMotion(direction, pointerId = null) {
+  if (!manualReady() || manualDirection) return;
+  manualDirection = direction;
+  manualPointerId = pointerId;
+  document.querySelector(`[data-manual-direction="${direction}"]`)?.classList.add("is-pressed");
+  manualSend(direction);
+  manualPulseTimer = window.setInterval(() => {
+    if (!manualReady() || !byId("view-manual").classList.contains("active")) {
+      stopManualMotion();
+      return;
+    }
+    manualSend(direction);
+  }, 100);
+}
+
+function connectManual() {
+  if (Date.now() < manualRetryAt) return;
+  if (manualSocket && manualSocket.readyState <= WebSocket.OPEN) return;
+  const protocol = location.protocol === "https:" ? "wss" : "ws";
+  const socket = new WebSocket(`${protocol}://${location.host}/ws/manual`);
+  manualSocket = socket;
+  manualAuthorized = false;
+  socket.onmessage = (message) => {
+    const payload = JSON.parse(message.data);
+    manualAuthorized = payload.state === "connected";
+    if (manualAuthorized) {
+      manualRetryAt = 0;
+      manualSocketError = "";
+    }
+    if (payload.error) manualSocketError = payload.error;
+    if (payload.error) toast(payload.error, "error");
+    renderManual();
+  };
+  socket.onclose = (event) => {
+    if (manualSocket !== socket) return;
+    stopManualMotion();
+    manualSocket = null;
+    manualAuthorized = false;
+    if (event.code === 1013) manualSocketError = "Control en uso en otra pantalla";
+    manualRetryAt = Date.now() + 2500;
+    renderManual();
+    if (event.code !== 1000 && byId("view-manual").classList.contains("active")
+      && dashboardState.processes?.manual?.active_state === "active") {
+      window.clearTimeout(manualReconnectTimer);
+      manualReconnectTimer = window.setTimeout(connectManual, 2500);
+    }
+  };
+}
+
+function renderManual() {
+  const process = dashboardState.processes?.manual || {};
+  const arm = dashboardState.arm || {};
+  const base = dashboardState.base || {};
+  const active = process.active_state === "active";
+  const ready = manualReady();
+  setStateBadge("manual-online", ready, "LISTO", active ? "INICIANDO" : "OFFLINE", active && !ready);
+  text("manual-connection", !active ? "SERVICIO DETENIDO" : manualAuthorized ? "TABLET CONECTADA" : manualSocketError || "CONECTANDO");
+  text("manual-owner", `BASE: ${base.owner || "--"}`);
+  text("manual-controller", arm.controller_connected ? "CONECTADO" : "SIN CONEXION");
+  text("manual-arm-core", arm.core_online && arm.poses_online ? "LISTO" : "ESPERANDO");
+  const reason = !active ? "Inicia Manual para habilitar la base"
+    : base.estop ? "E-STOP activo"
+      : !arm.controller_connected ? "Esperando STM32"
+        : base.owner !== "manual" ? `Esperando control de base (${base.owner || "--"})`
+          : !manualAuthorized ? manualSocketError || "Conectando control tactil"
+            : "Control listo";
+  text("manual-readiness", reason);
+  document.querySelectorAll(".manual-direction").forEach((button) => { button.disabled = !ready; });
+  byId("manual-stop").disabled = !active;
+  renderVisionProcessControls("manual", process, true);
+  if (!ready && manualDirection) stopManualMotion();
+  if (active && byId("view-manual").classList.contains("active")) connectManual();
+  else if (manualSocket) {
+    stopManualMotion();
+    manualSocket.close(1000);
+    manualSocket = null;
+    manualAuthorized = false;
+  }
+}
+
 function renderArmPoseGroups(catalog) {
   const groups = Array.isArray(catalog.groups) ? catalog.groups : [];
   const objectContainer = byId("arm-object-grid");
   const legacyContainer = byId("arm-legacy-grid");
   const process = dashboardState.processes?.arm || {};
   const arm = dashboardState.arm || {};
-  const motionReady = process.active_state === "active"
+  const motionReady = (process.active_state === "active" || dashboardState.processes?.manual?.active_state === "active")
     && isFresh(arm, 5)
     && Boolean(arm.controller_connected)
     && Boolean(arm.poses_online);
@@ -967,7 +1088,9 @@ function renderState() {
   renderProcess("patrol", processes.patrol);
   renderProcess("isa", processes.isa);
   renderProcess("arm", processes.arm);
+  renderProcess("manual", processes.manual);
   renderArm();
+  renderManual();
   renderVision();
   renderEvaluation();
 
@@ -1499,6 +1622,7 @@ async function sendRecording(camera, action, confirmation = "") {
 async function sendProcessAction(name, action, confirmation = "") {
   if (confirmation && !(await confirmAction(confirmation))) return;
   try {
+    if (name === "manual" && action !== "start") stopManualMotion();
     const options = {method: "POST"};
     const navActive = dashboardState.processes?.nav?.active_state === "active";
     const selectsMap = (name === "nav" && ["start", "restart"].includes(action))
@@ -1584,6 +1708,7 @@ async function showProcessLogs(name) {
 }
 
 function switchView(viewName) {
+  if (viewName !== "manual") stopManualMotion();
   document.querySelectorAll(".view").forEach((view) => {
     view.classList.toggle("active", view.id === `view-${viewName}`);
   });
@@ -1597,6 +1722,7 @@ function switchView(viewName) {
   if (viewName === "carolina") window.setTimeout(requestMapDraw, 40);
   if (viewName === "evaluation") loadEvaluation();
   if (viewName === "arm") loadArmLogs();
+  renderManual();
   if (viewName === "vision" || viewName === "isa") window.setTimeout(renderVision, 40);
   else {
     ["vision", "isa"].forEach((viewName) => {
@@ -1851,6 +1977,56 @@ byId("send-isa-command").addEventListener("click", () => {
 
 byId("controller-reset-c33").addEventListener("click", controllerEmergencyReset);
 byId("arm-controller-reset").addEventListener("click", controllerEmergencyReset);
+byId("manual-controller-reset").addEventListener("click", controllerEmergencyReset);
+byId("manual-stop").addEventListener("click", stopManualMotion);
+byId("manual-stop").addEventListener("pointerdown", stopManualMotion);
+
+document.querySelectorAll("[data-manual-direction]").forEach((button) => {
+  button.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || manualDirection) return;
+    event.preventDefault();
+    button.setPointerCapture(event.pointerId);
+    startManualMotion(button.dataset.manualDirection, event.pointerId);
+  });
+  button.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== manualPointerId || !manualDirection) return;
+    const rect = button.getBoundingClientRect();
+    if (event.clientX < rect.left || event.clientX > rect.right
+      || event.clientY < rect.top || event.clientY > rect.bottom) stopManualMotion();
+  });
+  button.addEventListener("pointerup", (event) => {
+    if (event.pointerId === manualPointerId) stopManualMotion();
+  });
+  button.addEventListener("pointercancel", stopManualMotion);
+  button.addEventListener("lostpointercapture", stopManualMotion);
+});
+
+[["manual-linear", "manual-linear-value", "m/s"], ["manual-angular", "manual-angular-value", "rad/s"]].forEach(([inputId, outputId, unit]) => {
+  byId(inputId).addEventListener("input", (event) => {
+    text(outputId, `${Number(event.target.value).toFixed(2)} ${unit}`);
+  });
+});
+
+window.addEventListener("blur", stopManualMotion);
+document.addEventListener("keydown", (event) => {
+  if (!byId("view-manual").classList.contains("active") || event.target.closest("input, textarea, select")) return;
+  const direction = {w: "forward", s: "backward", a: "left", d: "right"}[event.key.toLowerCase()];
+  if (direction) {
+    event.preventDefault();
+    startManualMotion(direction);
+  } else if (event.key.toLowerCase() === "x") {
+    event.preventDefault();
+    stopManualMotion();
+  }
+});
+document.addEventListener("keyup", (event) => {
+  if (!byId("view-manual").classList.contains("active")) return;
+  const direction = {w: "forward", s: "backward", a: "left", d: "right"}[event.key.toLowerCase()];
+  if (direction && direction === manualDirection && manualPointerId === null) {
+    event.preventDefault();
+    stopManualMotion();
+  }
+});
 byId("dashboard-power-off").addEventListener("click", shutdownDashboard);
 byId("arm-logs-refresh").addEventListener("click", loadArmLogs);
 
@@ -2110,7 +2286,10 @@ window.addEventListener("online", () => {
 });
 
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "visible") return;
+  if (document.visibilityState !== "visible") {
+    stopManualMotion();
+    return;
+  }
   connectStateSocket();
   if (terminalStarted && byId("view-terminal").classList.contains("active")) connectTerminal();
 });
@@ -2142,7 +2321,7 @@ loadEvaluation();
 const requestedView = location.hash.slice(1);
 const initialView = requestedView === "map"
   ? "carolina"
-  : ["dashboard", "carolina", "isa", "vision", "evaluation", "terminal", "events"].includes(requestedView)
+  : ["dashboard", "carolina", "isa", "arm", "manual", "vision", "evaluation", "terminal", "events"].includes(requestedView)
     ? requestedView
     : "dashboard";
 switchView(initialView);

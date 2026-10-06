@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <title>EMMA Control</title>
     <link rel="stylesheet" href="/vendor/@xterm/xterm/css/xterm.css">
-    <link rel="stylesheet" href="/static/app.css?v=1.18">
+    <link rel="stylesheet" href="/static/app.css?v=1.19">
   </head>
   <body>
     <div class="app-shell">
@@ -15,7 +15,7 @@
           <span class="brand-mark" aria-hidden="true"></span>
           <div>
             <strong>EMMA CONTROL</strong>
-            <span>ORIN / OPERATIONS V1.16</span>
+            <span>ORIN / OPERATIONS V1.17</span>
           </div>
         </div>
 
@@ -31,6 +31,9 @@
           </button>
           <button class="tab-button" data-view-target="arm" role="tab" aria-selected="false">
             <i data-lucide="hand"></i><span>Brazo</span>
+          </button>
+          <button class="tab-button" data-view-target="manual" role="tab" aria-selected="false">
+            <i data-lucide="gamepad-2"></i><span>Manual</span>
           </button>
           <button class="tab-button" data-view-target="vision" role="tab" aria-selected="false">
             <i data-lucide="scan-eye"></i><span>Vision</span>
@@ -216,6 +219,21 @@
                     <button class="icon-button danger" data-process="arm" data-process-action="stop" data-confirm="Detener el brazo y cerrar su sesion C3?" title="Detener brazo" aria-label="Detener brazo"><i data-lucide="square"></i></button>
                     <button class="icon-button" data-process="arm" data-process-action="restart" data-confirm="Reiniciar el proceso completo del brazo?" title="Reiniciar brazo" aria-label="Reiniciar brazo"><i data-lucide="refresh-cw"></i></button>
                     <button class="icon-button" data-process-logs="arm" title="Ver logs del brazo" aria-label="Ver logs del brazo"><i data-lucide="scroll-text"></i></button>
+                  </div>
+                </div>
+                <div class="process-row" id="process-manual" data-state="offline">
+                  <div class="process-identity">
+                    <span class="status-dot"></span>
+                    <div><strong>Manual + brazo</strong><span>emma-manual.service</span></div>
+                  </div>
+                  <div class="process-metric"><span>ESTADO</span><strong data-process-field="active_state">UNKNOWN</strong></div>
+                  <div class="process-metric"><span>PID</span><strong data-process-field="main_pid">--</strong></div>
+                  <div class="process-metric"><span>ACTIVO</span><strong data-process-field="uptime">--</strong></div>
+                  <div class="process-actions">
+                    <button class="icon-button positive" data-process="manual" data-process-action="start" title="Iniciar control manual" aria-label="Iniciar control manual"><i data-lucide="play"></i></button>
+                    <button class="icon-button danger" data-process="manual" data-process-action="stop" title="Detener control manual" aria-label="Detener control manual"><i data-lucide="square"></i></button>
+                    <button class="icon-button" data-process="manual" data-process-action="restart" title="Reiniciar control manual" aria-label="Reiniciar control manual"><i data-lucide="refresh-cw"></i></button>
+                    <button class="icon-button" data-process-logs="manual" title="Ver logs del control manual" aria-label="Ver logs del control manual"><i data-lucide="scroll-text"></i></button>
                   </div>
                 </div>
               </div>
@@ -529,7 +547,7 @@
           <div class="arm-workspace">
             <section class="ops-panel arm-status-panel">
               <header class="panel-header">
-                <div><span class="panel-kicker">LIVE STATE</span><h2>Estado C3</h2></div>
+                <div><span class="panel-kicker">LIVE STATE</span><h2>Estado brazo</h2></div>
               </header>
               <dl class="telemetry-list arm-telemetry">
                 <div><dt>Servicio</dt><dd id="arm-service-state">INACTIVE</dd></div>
@@ -583,6 +601,49 @@
                 </div>
               </header>
               <pre id="arm-logs-content">Sin entradas en el journal</pre>
+            </section>
+          </div>
+        </section>
+
+        <section class="view manual-view" id="view-manual" aria-label="Control manual de base y brazo">
+          <div class="manual-toolbar">
+            <div class="vision-identity"><i data-lucide="gamepad-2"></i><div><strong>Control manual</strong><span>BASE + BRAZO / STM32</span></div></div>
+            <span class="module-state" id="manual-online" data-state="offline"><span class="status-dot"></span>OFFLINE</span>
+            <div class="toolbar-actions">
+              <button class="icon-button positive" data-process="manual" data-process-action="start" title="Iniciar modo manual" aria-label="Iniciar modo manual"><i data-lucide="play"></i></button>
+              <button class="icon-button danger" data-process="manual" data-process-action="stop" title="Detener modo manual" aria-label="Detener modo manual"><i data-lucide="square"></i></button>
+              <button class="icon-button" data-process-logs="manual" title="Ver logs del modo manual" aria-label="Ver logs del modo manual"><i data-lucide="scroll-text"></i></button>
+            </div>
+          </div>
+          <div class="manual-workspace">
+            <section class="manual-drive" aria-label="Conduccion manual">
+              <div class="manual-state-line"><span id="manual-connection">DESCONECTADO</span><strong id="manual-owner">BASE: --</strong></div>
+              <div class="manual-pad" aria-label="Direccion">
+                <button class="manual-direction forward" data-manual-direction="forward" aria-label="Avanzar" title="Mantener para avanzar"><i data-lucide="arrow-up"></i></button>
+                <button class="manual-direction left" data-manual-direction="left" aria-label="Girar a la izquierda" title="Mantener para girar a la izquierda"><i data-lucide="arrow-left"></i></button>
+                <button class="manual-stop" id="manual-stop" aria-label="Detener base" title="Detener base"><i data-lucide="square"></i><span>STOP</span></button>
+                <button class="manual-direction right" data-manual-direction="right" aria-label="Girar a la derecha" title="Mantener para girar a la derecha"><i data-lucide="arrow-right"></i></button>
+                <button class="manual-direction backward" data-manual-direction="backward" aria-label="Retroceder" title="Mantener para retroceder"><i data-lucide="arrow-down"></i></button>
+              </div>
+              <div class="manual-speed-controls">
+                <label for="manual-linear">Velocidad lineal <output id="manual-linear-value">0.15 m/s</output></label>
+                <input type="range" id="manual-linear" min="0.08" max="0.40" step="0.01" value="0.15">
+                <label for="manual-angular">Velocidad de giro <output id="manual-angular-value">0.30 rad/s</output></label>
+                <input type="range" id="manual-angular" min="0.15" max="0.60" step="0.01" value="0.30">
+              </div>
+              <div class="manual-readiness" id="manual-readiness">Inicia Manual para habilitar la base</div>
+            </section>
+            <section class="manual-arm" aria-label="Control del brazo">
+              <div class="manual-arm-header"><div><span class="panel-kicker cyan">BRAZO</span><h2>Acciones</h2></div><button class="text-button" data-view-link="arm"><i data-lucide="arrow-up-right"></i><span>Poses</span></button></div>
+              <div class="manual-arm-state"><span>STM32</span><strong id="manual-controller">SIN DATOS</strong><span>Core / poses</span><strong id="manual-arm-core">OFFLINE</strong></div>
+              <div class="manual-arm-actions">
+                <button class="command-button" data-arm-command="start" data-confirm="Mover el brazo a la posicion inicial?"><i data-lucide="house"></i><span>Inicial</span></button>
+                <button class="command-button" data-arm-command="home"><i data-lucide="locate-fixed"></i><span>Home</span></button>
+                <button class="command-button" data-arm-command="gripper_open"><i data-lucide="chevrons-left-right"></i><span>Abrir gripper</span></button>
+                <button class="command-button" data-arm-command="gripper_close" data-confirm="Cerrar el gripper?"><i data-lucide="chevrons-right-left"></i><span>Cerrar gripper</span></button>
+                <button class="command-button danger" data-arm-command="stop"><i data-lucide="octagon"></i><span>STOP brazo</span></button>
+                <button class="command-button danger" id="manual-controller-reset"><i data-lucide="siren"></i><span>Reset controller</span></button>
+              </div>
             </section>
           </div>
         </section>
@@ -883,6 +944,6 @@
     <script src="/vendor/lucide/dist/umd/lucide.js"></script>
     <script src="/vendor/@xterm/xterm/lib/xterm.js"></script>
     <script src="/vendor/@xterm/addon-fit/lib/addon-fit.js"></script>
-    <script src="/static/app.js?v=1.18"></script>
+    <script src="/static/app.js?v=1.19"></script>
   </body>
 </html>

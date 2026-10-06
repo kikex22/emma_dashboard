@@ -121,6 +121,10 @@ MANAGED_SERVICES = {
         "unit": "emma-arm.service",
         "label": "Brazo",
     },
+    "manual": {
+        "unit": "emma-manual.service",
+        "label": "Control manual",
+    },
     "evaluation": {
         "unit": "emma-evaluation.service",
         "label": "Evaluation",
@@ -1065,7 +1069,7 @@ class RosBridge:
                 ReliabilityPolicy,
             )
             from rclpy.time import Time
-            from geometry_msgs.msg import PoseWithCovarianceStamped
+            from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
             from nav_msgs.msg import OccupancyGrid
             from std_msgs.msg import String
             from std_msgs.msg import Int32MultiArray, UInt16
@@ -1091,6 +1095,12 @@ class RosBridge:
             )
             self.publishers["arm_joint"] = self.node.create_publisher(
                 Int32MultiArray, "/arm/joint_cmd", 10
+            )
+            self.publishers["manual_velocity"] = self.node.create_publisher(
+                Twist, "/base/cmd_vel/manual", 10
+            )
+            self.publishers["base_request"] = self.node.create_publisher(
+                String, "/base/control/request", 10
             )
             self.publishers["record_astra"] = self.node.create_publisher(
                 String, "/od/recording_cmd", 10
@@ -1324,6 +1334,28 @@ class RosBridge:
             self.publishers[subsystem].publish(
                 String(data=json.dumps(payload, ensure_ascii=True))
             )
+            return True
+        except Exception:
+            return False
+
+    def publish_manual_velocity(self, direction: str, linear: float, angular: float) -> bool:
+        if not self.ready or "manual_velocity" not in self.publishers:
+            return False
+        try:
+            from geometry_msgs.msg import Twist
+
+            msg = Twist()
+            if direction == "forward":
+                msg.linear.x = linear
+            elif direction == "backward":
+                msg.linear.x = -linear
+            elif direction == "left":
+                msg.angular.z = angular
+            elif direction == "right":
+                msg.angular.z = -angular
+            elif direction != "stop":
+                return False
+            self.publishers["manual_velocity"].publish(msg)
             return True
         except Exception:
             return False
@@ -2007,6 +2039,7 @@ class RosBridge:
 
 hub = DashboardHub()
 ros_bridge = RosBridge(hub)
+manual_control_lock = asyncio.Lock()
 
 
 class ServiceManager:
@@ -2150,6 +2183,17 @@ class ServiceManager:
     ) -> dict[str, Any]:
         if name not in MANAGED_SERVICES or action not in SERVICE_ACTIONS:
             raise ValueError("Accion de proceso no permitida")
+
+        if action in {"start", "restart"}:
+            if name == "manual":
+                for conflict in ("nav", "patrol", "isa", "arm"):
+                    status = await self.status(conflict)
+                    if status["active_state"] in {"active", "activating", "reloading"}:
+                        raise RuntimeError(f"Deten {MANAGED_SERVICES[conflict]['label']} antes de iniciar Manual")
+            elif name in {"nav", "patrol", "isa", "arm"}:
+                manual = await self.status("manual")
+                if manual["active_state"] in {"active", "activating", "reloading"}:
+                    raise RuntimeError("Deten Control manual antes de iniciar este proceso")
 
         if map_name is not None:
             can_select_map = (
@@ -2658,7 +2702,7 @@ async def lifespan(_: FastAPI):
         ros_bridge.stop()
 
 
-app = FastAPI(title="EMMA Dashboard", version="1.16.0", lifespan=lifespan)
+app = FastAPI(title="EMMA Dashboard", version="1.17.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount(
     "/vendor",
@@ -3016,8 +3060,9 @@ async def command(body: CommandBody) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Comando no permitido")
     if subsystem == "arm":
         arm_process = await service_manager.status("arm")
-        if arm_process["active_state"] != "active":
-            raise HTTPException(status_code=409, detail="El servicio del brazo no esta activo")
+        manual_process = await service_manager.status("manual")
+        if arm_process["active_state"] != "active" and manual_process["active_state"] != "active":
+            raise HTTPException(status_code=409, detail="El servicio del brazo o Manual no esta activo")
         arm_state = hub.state.get("arm", {})
         if not arm_state.get("controller_connected"):
             detail = arm_state.get("controller_message") or "STM32 no conectado"
@@ -3203,6 +3248,83 @@ async def state_socket(websocket: WebSocket) -> None:
         pass
     finally:
         hub.disconnect(websocket)
+
+
+@app.websocket("/ws/manual")
+async def manual_socket(websocket: WebSocket) -> None:
+    if not local_websocket_origin(websocket):
+        await websocket.close(code=1008)
+        return
+    if manual_control_lock.locked():
+        await websocket.close(code=1013)
+        return
+
+    async with manual_control_lock:
+        await websocket.accept()
+        status = await service_manager.status("manual")
+        if status["active_state"] != "active" or not ros_bridge.ready:
+            await websocket.send_json({"error": "Inicia Control manual y espera ROS 2"})
+            await websocket.close(code=1011)
+            return
+
+        if not ros_bridge.publish_json_topic("base_request", {
+            "action": "acquire", "owner": "manual", "reason": "dashboard_manual",
+        }):
+            await websocket.close(code=1011)
+            return
+
+        await websocket.send_json({"state": "connected"})
+        next_request = time.monotonic() + 1.0
+        try:
+            while True:
+                try:
+                    command = await asyncio.wait_for(websocket.receive_json(), timeout=0.4)
+                except asyncio.TimeoutError:
+                    ros_bridge.publish_manual_velocity("stop", 0.0, 0.0)
+                    if hub.state.get("base", {}).get("owner") != "manual" and time.monotonic() >= next_request:
+                        ros_bridge.publish_json_topic("base_request", {
+                            "action": "acquire", "owner": "manual", "reason": "dashboard_manual",
+                        })
+                        next_request = time.monotonic() + 1.0
+                    continue
+
+                direction = command.get("direction") if isinstance(command, dict) else None
+                if direction not in {"forward", "backward", "left", "right", "stop"}:
+                    ros_bridge.publish_manual_velocity("stop", 0.0, 0.0)
+                    continue
+
+                process = hub.state.get("processes", {}).get("manual", {})
+                base = hub.state.get("base", {})
+                arm = hub.state.get("arm", {})
+                ready = (
+                    process.get("active_state") == "active"
+                    and base.get("owner") == "manual"
+                    and not base.get("estop")
+                    and unix_time() - float(base.get("updated_at") or 0) < 2.5
+                    and arm.get("controller_connected")
+                    and unix_time() - float(arm.get("updated_at") or 0) < 5.0
+                )
+                if direction != "stop" and not ready:
+                    ros_bridge.publish_manual_velocity("stop", 0.0, 0.0)
+                    continue
+
+                try:
+                    linear = max(0.08, min(0.4, float(command.get("linear", 0.15))))
+                    angular = max(0.15, min(0.6, float(command.get("angular", 0.3))))
+                except (TypeError, ValueError):
+                    ros_bridge.publish_manual_velocity("stop", 0.0, 0.0)
+                    continue
+                if not math.isfinite(linear) or not math.isfinite(angular):
+                    ros_bridge.publish_manual_velocity("stop", 0.0, 0.0)
+                    continue
+                ros_bridge.publish_manual_velocity(direction, linear, angular)
+        except WebSocketDisconnect:
+            pass
+        finally:
+            ros_bridge.publish_manual_velocity("stop", 0.0, 0.0)
+            ros_bridge.publish_json_topic("base_request", {
+                "action": "release", "owner": "manual", "reason": "dashboard_disconnected",
+            })
 
 
 def set_pty_size(fd: int, cols: int, rows: int) -> None:

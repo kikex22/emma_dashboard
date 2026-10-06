@@ -1,14 +1,15 @@
-# EMMA Dashboard V1.16
+# EMMA Dashboard V1.17
 
 Panel de operacion que vive en el Jetson Orin y se conecta directamente a
-ROS 2. V1.16 corrige el layout responsive del brazo en navegador de escritorio y tablet,
-con filas explicitas, scroll estable y paneles Legacy/Journal sin superposicion.
 ROS 2. Incluye controles de Carolina Patrol, terminal local, gestion de Nav2 y
 Patrol mediante systemd, un visor 2D alimentado por `/map`, TF y
 `/patrol/markers`, dos monitores WebRTC para OD Astra y Arm Cam, y control
 interactivo de ISA y del brazo. La barra superior muestra la bateria del robot
 leyendo `/ros_robot_controller/battery` en milivoltios y calculando porcentaje
 para un pack 3S.
+
+V1.17 agrega Control manual de base y brazo para tablet. Usa el launch
+`isabel emma_system2.launch.py` y el mux de base con owner `manual`.
 
 La vista Evaluation integra el recolector de `C26` para los ensayos Carolina
 3/4, Vision 5/9 e ISA 8. El recolector se inicia bajo demanda y no enciende ni
@@ -22,6 +23,8 @@ cd /home/jetson/emma/src/emma_dashboard
 chmod +x scripts/*.sh
 ./scripts/install-mediamtx.sh
 ./scripts/install-systemd.sh
+cd /home/jetson/emma
+colcon build --packages-select controller --symlink-install
 ```
 
 Las unidades se instalan sin habilitar arranque automatico.
@@ -52,6 +55,8 @@ systemctl --user start emma-isa
 systemctl --user stop emma-isa
 systemctl --user start emma-arm
 systemctl --user stop emma-arm
+systemctl --user start emma-manual
+systemctl --user stop emma-manual
 systemctl --user start emma-evaluation
 systemctl --user stop emma-evaluation
 ```
@@ -84,6 +89,16 @@ el estado de los nodos, la conexion STM32 y el journal, y publica posiciones y
 ordenes de gripper mediante `/arm/pose_cmd`, `/arm/cmd` y `/arm/joint_cmd`.
 El inicio se rechaza si el controller no aparece en `/dev/ttyACM0`.
 
+`emma-manual` inicia C5 y los nodos de `isabel emma.launch.py` dentro de un
+solo launch, con un solo controller STM32. No se inicia junto a Nav2, Patrol,
+ISA o C3. La vista Manual muestra la cruceta tactil, STOP, velocidades y
+acciones rapidas del brazo; las poses completas siguen en Brazo. El navegador
+publica en `/base/cmd_vel/manual` solo mientras se mantiene una direccion;
+el mux aplica un timeout de 0.35 s y publica cero al perder los comandos.
+`server.py` controla el WebSocket `/ws/manual`, `static/app.js` los gestos y
+`static/app.css` el layout. `base_control_mux.py` esta en
+`/home/jetson/emma/src/driver/controller/controller/`.
+
 ## Grabaciones
 
 Cada panel de camara permite grabar el video raw, el video anotado o ambos. Los
@@ -114,6 +129,7 @@ journalctl --user -u emma-od-astra -f
 journalctl --user -u emma-od-arm -f
 journalctl --user -u emma-isa -f
 journalctl --user -u emma-arm -f
+journalctl --user -u emma-manual -f
 journalctl --user -u emma-evaluation -f
 ```
 
