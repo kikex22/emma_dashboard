@@ -1,4 +1,4 @@
-# EMMA Dashboard V1.17
+# EMMA Dashboard V1.22
 
 Panel de operacion que vive en el Jetson Orin y se conecta directamente a
 ROS 2. Incluye controles de Carolina Patrol, terminal local, gestion de Nav2 y
@@ -8,6 +8,11 @@ interactivo de ISA y del brazo. La barra superior muestra la bateria del robot
 leyendo `/ros_robot_controller/battery` en milivoltios y calculando porcentaje
 para un pack 3S.
 
+V1.22 muestra BBOX de Arm Cam por defecto y permite cambiar a RAW desde Vision.
+V1.21 rota Arm Cam 180 grados en el emisor y comparte una sola captura USB entre el dashboard y OD.
+V1.20 corrige la identificacion visible de la Arm Cam Jieli.
+V1.19 agrega ROS STOP para detener la pila ROS/EMMA sin apagar el dashboard.
+V1.18 corrige el arranque de ISA sobre C27 y unifica la captura de Arm Cam.
 V1.17 agrega Control manual de base y brazo para tablet. Usa el launch
 `isabel emma_system2.launch.py` y el mux de base con owner `manual`.
 

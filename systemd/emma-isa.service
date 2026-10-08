@@ -1,7 +1,7 @@
 [Unit]
 Description=EMMA ISA orchestrator with local Orin OD
-Requires=emma-vision.target
-After=emma-vision.target
+Requires=emma-manual.service emma-vision.target
+After=emma-manual.service emma-vision.target
 StartLimitIntervalSec=60
 StartLimitBurst=3
 

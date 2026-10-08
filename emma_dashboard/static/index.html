@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <title>EMMA Control</title>
     <link rel="stylesheet" href="/vendor/@xterm/xterm/css/xterm.css">
-    <link rel="stylesheet" href="/static/app.css?v=1.19">
+    <link rel="stylesheet" href="/static/app.css?v=1.22">
   </head>
   <body>
     <div class="app-shell">
@@ -15,7 +15,7 @@
           <span class="brand-mark" aria-hidden="true"></span>
           <div>
             <strong>EMMA CONTROL</strong>
-            <span>ORIN / OPERATIONS V1.17</span>
+            <span>ORIN / OPERATIONS V1.22</span>
           </div>
         </div>
 
@@ -52,6 +52,9 @@
         <div class="top-status">
           <button class="emergency-button" id="controller-reset-c33" title="C33: emergencia y reset del controller" aria-label="C33 emergencia y reset del controller">
             <i data-lucide="siren"></i><span>C33</span>
+          </button>
+          <button class="emergency-button ros-stop-button" id="ros-stop-all" title="Detener toda la pila ROS/EMMA" aria-label="Detener toda la pila ROS/EMMA">
+            <i data-lucide="power-off"></i><span>ROS STOP</span>
           </button>
           <span class="connection-pill" id="orin-pill" data-state="offline">
             <span class="status-dot"></span>ORIN
@@ -721,9 +724,13 @@
                 <header class="camera-header">
                   <div class="camera-identity">
                     <span class="status-dot"></span>
-                    <div><strong>ARM CAM</strong><span id="arm-camera-state">ELGATO --</span></div>
+                    <div><strong>ARM CAM / JIELI</strong><span id="arm-camera-state">CAMARA --</span></div>
                   </div>
                   <div class="camera-actions">
+                    <select class="feed-select" id="arm-feed-mode" aria-label="Seleccionar feed Arm Cam" title="Feed Arm Cam">
+                      <option value="bbox" selected>BBOX</option>
+                      <option value="raw">RAW</option>
+                    </select>
                     <button class="icon-button positive" data-process="od_arm" data-process-action="start" title="Iniciar Arm Cam" aria-label="Iniciar Arm Cam"><i data-lucide="play"></i></button>
                     <button class="icon-button danger" data-process="od_arm" data-process-action="stop" title="Detener Arm Cam" aria-label="Detener Arm Cam"><i data-lucide="square"></i></button>
                     <button class="icon-button" data-process="od_arm" data-process-action="restart" title="Reiniciar Arm Cam" aria-label="Reiniciar Arm Cam"><i data-lucide="refresh-cw"></i></button>
@@ -944,6 +951,6 @@
     <script src="/vendor/lucide/dist/umd/lucide.js"></script>
     <script src="/vendor/@xterm/xterm/lib/xterm.js"></script>
     <script src="/vendor/@xterm/addon-fit/lib/addon-fit.js"></script>
-    <script src="/static/app.js?v=1.19"></script>
+    <script src="/static/app.js?v=1.23"></script>
   </body>
 </html>

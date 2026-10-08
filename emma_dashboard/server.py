@@ -51,6 +51,12 @@ CONTROLLER_RESET_SCRIPT = Path(
         "/home/jetson/emma/scripts/controller_usb_reset_fast.sh",
     )
 )
+ROS_STACK_STOP_SCRIPT = Path(
+    os.environ.get(
+        "EMMA_ROS_STACK_STOP_SCRIPT",
+        "/home/jetson/emma/scripts/ros-stack-stop.sh",
+    )
+)
 TEGRASTATS_BIN = Path(os.environ.get("EMMA_TEGRASTATS_BIN", "/usr/bin/tegrastats"))
 EVALUATION_ROOT = Path(
     os.environ.get("EMMA_EVALUATION_DIR", "/home/jetson/.emma/evaluation")
@@ -2702,7 +2708,7 @@ async def lifespan(_: FastAPI):
         ros_bridge.stop()
 
 
-app = FastAPI(title="EMMA Dashboard", version="1.17.0", lifespan=lifespan)
+app = FastAPI(title="EMMA Dashboard", version="1.22.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount(
     "/vendor",
@@ -2994,9 +3000,12 @@ async def evaluation_stop() -> dict[str, Any]:
     try:
         await ensure_evaluation_collector()
         await publish_evaluation_command({"action": "stop"})
+        report_path = EVALUATION_ROOT / "runs" / str(active["run_id"]) / "report.json"
         deadline = time.monotonic() + 20.0
         while time.monotonic() < deadline:
-            if not evaluation_active_state()["active"]:
+            # The collector removes active_trial.json before generate_report().
+            # Waiting only for the inactive flag races the final report write.
+            if report_path.is_file():
                 await service_manager.action("evaluation", "stop")
                 state = await evaluation_monitor.refresh()
                 reports = evaluation_reports()
@@ -3209,6 +3218,23 @@ async def controller_emergency_reset() -> dict[str, Any]:
         )
 
     await hub.add_event("system", "C33 controller reset ejecutado", "warn")
+    return {"ok": True, "output": output}
+
+
+@app.post("/api/emergency/ros-stop")
+async def ros_stack_stop() -> dict[str, Any]:
+    if not ROS_STACK_STOP_SCRIPT.exists():
+        raise HTTPException(status_code=503, detail="Script ROS STOP no encontrado")
+
+    code, stdout, stderr = await service_manager._run(
+        str(ROS_STACK_STOP_SCRIPT), timeout=25.0
+    )
+    output = "\n".join(part for part in (stdout, stderr) if part).strip()
+    if code != 0:
+        await hub.add_event("system", "ROS STOP fallo", "error")
+        raise HTTPException(status_code=503, detail=output or f"ROS STOP fallo con codigo {code}")
+
+    await hub.add_event("system", "ROS STOP: pila ROS/EMMA detenida", "warn")
     return {"ok": True, "output": output}
 
 

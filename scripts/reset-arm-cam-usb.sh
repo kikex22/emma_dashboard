@@ -4,7 +4,7 @@ set -euo pipefail
 HUB_LOCATION="${EMMA_ARM_CAM_USB_HUB:-1-2}"
 HUB_PORT="${EMMA_ARM_CAM_USB_PORT:-1}"
 CYCLE_DELAY="${EMMA_ARM_CAM_USB_DELAY:-2}"
-DEVICE="${EMMA_ARM_CAM_DEVICE:-/dev/v4l/by-id/usb-icSpring_icspring_camera-video-index0}"
+DEVICE="${EMMA_ARM_CAM_DEVICE:-/dev/v4l/by-id/usb-Jieli_Technology_USB_PHY_2.0-video-index0}"
 
 say() {
   printf '[ARM_CAM_RESET] %s\n' "$*" >&2

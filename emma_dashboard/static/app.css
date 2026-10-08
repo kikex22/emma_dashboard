@@ -605,6 +605,18 @@ textarea:focus-visible {
   color: #fff1f2;
 }
 
+.ros-stop-button {
+  border-color: rgb(251 191 36 / 60%);
+  background: #30230b;
+  color: #fde68a;
+}
+
+.ros-stop-button:hover {
+  border-color: rgb(251 191 36 / 90%);
+  background: #4a350d;
+  color: #fffbeb;
+}
+
 .emergency-button svg {
   width: 16px;
   height: 16px;

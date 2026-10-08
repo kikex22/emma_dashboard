@@ -425,6 +425,10 @@ function astraFeedMode() {
   return "bbox";
 }
 
+function armFeedMode() {
+  return byId("arm-feed-mode")?.value === "raw" ? "raw" : "bbox";
+}
+
 function visionStreamPath(viewName, camera) {
   if (viewName === "vision" && camera === "astra") {
     const mode = astraFeedMode();
@@ -432,7 +436,7 @@ function visionStreamPath(viewName, camera) {
     if (mode === "bin") return "astra_bin";
     return "astra";
   }
-  if (viewName === "vision" && camera === "arm") return "arm_raw";
+  if (viewName === "vision" && camera === "arm") return armFeedMode() === "raw" ? "arm_raw" : "arm";
   return camera;
 }
 
@@ -565,7 +569,7 @@ function renderVision() {
   const armReady = Boolean(vision.arm_stream_ready);
   const astraMode = astraFeedMode();
   const astraSelectedReady = streamReady(visionStreamPath("vision", "astra"));
-  const armSelectedReady = Boolean(vision.arm_raw_stream_ready);
+  const armSelectedReady = streamReady(visionStreamPath("vision", "arm"));
   const gatewayOnline = Boolean(vision.gateway_online);
 
   setStateBadge(
@@ -595,7 +599,7 @@ function renderVision() {
   text("astra-target", astra.target_class || firstDetection?.class_name || "--");
   text("astra-distance", fixed(astra.target_distance_m, 2, " m"));
 
-  text("arm-stream", armSelectedReady ? "ELGATO RAW" : "OFFLINE");
+  text("arm-stream", armSelectedReady ? armFeedMode().toUpperCase() : "OFFLINE");
   text("arm-fps", isFresh(arm, 4) ? fixed(arm.annotated_fps, 1) : "--");
   text("arm-latency", isFresh(arm, 4) ? fixed(arm.processing_latency_ms, 1, " ms") : "--");
   const alignment = arm.alignment_command && arm.alignment_command !== "--"
@@ -1672,6 +1676,24 @@ async function controllerEmergencyReset() {
   }
 }
 
+async function stopRosStack() {
+  const confirmed = await confirmAction(
+    "ROS STOP detendra Nav2, Patrol, ISA, brazo, OD, Evaluation y los demas procesos ROS. El dashboard seguira encendido. Continuar?"
+  );
+  if (!confirmed) return;
+
+  try {
+    toast("ROS STOP: deteniendo la pila ROS/EMMA...");
+    const response = await fetch("/api/emergency/ros-stop", {method: "POST"});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || "No se pudo detener ROS");
+    toast("ROS STOP: pila detenida; dashboard preservado");
+    await refreshState();
+  } catch (error) {
+    toast(error.message || "Error ejecutando ROS STOP", "error");
+  }
+}
+
 async function shutdownDashboard() {
   const confirmed = await confirmAction(
     "Apagar solamente el dashboard? Nav2, Patrol, ISA y Vision seguiran en su estado actual. Usa C25 para encenderlo nuevamente."
@@ -1976,6 +1998,7 @@ byId("send-isa-command").addEventListener("click", () => {
 });
 
 byId("controller-reset-c33").addEventListener("click", controllerEmergencyReset);
+byId("ros-stop-all").addEventListener("click", stopRosStack);
 byId("arm-controller-reset").addEventListener("click", controllerEmergencyReset);
 byId("manual-controller-reset").addEventListener("click", controllerEmergencyReset);
 byId("manual-stop").addEventListener("click", stopManualMotion);
@@ -2248,6 +2271,11 @@ byId("clear-events").addEventListener("click", () => {
 
 byId("astra-feed-mode")?.addEventListener("change", () => {
   syncVisionPlayer("astra");
+  renderVision();
+});
+
+byId("arm-feed-mode")?.addEventListener("change", () => {
+  syncVisionPlayer("arm");
   renderVision();
 });
 

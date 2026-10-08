@@ -1,7 +1,7 @@
 [Unit]
 Description=EMMA arm camera object detection for dashboard
-Requires=emma-video.service
-After=emma-video.service
+Requires=emma-video.service emma-cams-sender.service
+After=emma-video.service emma-cams-sender.service
 PartOf=emma-vision.target
 
 [Service]
